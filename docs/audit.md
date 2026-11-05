@@ -91,10 +91,19 @@
 
 ## 7. Validation log (to be filled during §3.3)
 
-| Date | Step | Result | Fix |
+Run on the owner's Mac, account storefront `br`. Tokens are not recorded.
+
+| Date | Step | Result | Detail / fix |
 |---|---|---|---|
-| — | `login` | pending | — |
-| — | `doctor` (read) | pending | — |
-| — | `doctor --write` | pending | — |
+| 2026-11-05 | `login` (first try) | **FAIL** | `index~<hash>.js: no valid JWT`. Root cause: the bundle holds 3 JWTs with `typ`-first headers, and one is pinned to another origin (401). Fixed in #38: any JWT form, prefer `iss=AMPWebPlay`, crawl chunks, resolve bare `assets/` refs |
+| 2026-11-05 | BPM (Deezer) | **FAIL → fixed** | Advanced `artist:"…" track:"…"` query returns nothing live. Fixed in #39 (plain query, fuzzy match) |
+| 2026-11-05 | `login` | ok | Signed in, storefront `br` |
+| 2026-11-05 | `doctor` (read) | ok | Developer token valid 57 more days (268 chars); catalog search ok (`apple-music`); iTunes fallback ok; BPM via Deezer ok (126 BPM); user token ok; library: 12 playlists |
+| 2026-11-05 | `doctor --write` | ok | Created a 2-track test playlist, reordered **in place** (verified), deleted it |
+| — | `doctor` checks added in #36: recently played, ratings, heavy rotation, similar artists, Music app stats | pending | The installed CLI predates #36. Reinstall with `uv tool install --force --reinstall --no-cache .` and rerun `doctor` |
 | — | Dispatch from iPhone calls `auth_status` | pending | — |
 | — | Desktop scheduled task calls an MCP tool | pending | — |
+
+Notes:
+- The developer token found live has about 57 days left. `DeveloperTokenProvider` re-scrapes it automatically on expiry or 401.
+- The user token's expiry date (cookie *Expires*) is not stored yet. That is a Phase 1 item (guide §5).
