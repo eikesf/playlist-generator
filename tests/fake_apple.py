@@ -112,6 +112,12 @@ class FakeAppleMusic:
     playlists: dict[str, dict] = field(default_factory=dict)
     calls: list[tuple[str, str]] = field(default_factory=list)
     fail_next: list[int] = field(default_factory=list)
+    # Which track-removal request shapes this fake accepts ("query", "path"); empty = none.
+    remove_variants: set[str] = field(default_factory=lambda: {"query"})
+    allow_patch: bool = True
+    allow_delete_playlist: bool = True
+    fail_add_after: int | None = None  # make the Nth add-tracks POST fail (to test restore)
+    _adds: int = 0
     _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
 
     # ------------------------------------------------------------------ helpers
@@ -244,39 +250,87 @@ class FakeAppleMusic:
             if m.group(1) not in self.playlists:
                 return httpx.Response(404, json={"errors": [{"status": "404"}]})
             data = []
-            for n, sid in enumerate(self.playlists[m.group(1)]["tracks"]):
+            for sid in self.playlists[m.group(1)]["tracks"]:
                 song = self.songs_by_id[sid]
                 data.append(
                     {
-                        "id": f"i.LIB{n}",
+                        "id": f"i.{sid}",
                         "type": "library-songs",
                         "attributes": {
                             "name": song.name,
                             "artistName": song.artist,
-                            "playParams": {"id": f"i.LIB{n}", "kind": "song", "catalogId": sid},
+                            "durationInMillis": song.duration_ms,
+                            "playParams": {
+                                "id": f"i.{sid}",
+                                "kind": "song",
+                                "isLibrary": True,
+                                "catalogId": sid,
+                            },
                         },
                     }
                 )
             return httpx.Response(200, json={"data": data})
+        if m and request.method == "DELETE":
+            if "query" not in self.remove_variants:
+                return httpx.Response(405, json={"errors": [{"status": "405"}]})
+            q = parse_qs(urlparse(str(request.url)).query)
+            lib = q.get("ids[library-songs]", [""])[0]
+            return self._remove(m.group(1), lib)
         if m and request.method == "POST":
             pid = m.group(1)
             if pid not in self.playlists:
                 return httpx.Response(404, json={"errors": [{"status": "404"}]})
             body = json.loads(request.content or b"{}")
             data = body.get("data") or []
+            self._adds += 1
+            if self.fail_add_after is not None and self._adds > self.fail_add_after:
+                return httpx.Response(500, json={"errors": [{"status": "500"}]})
             if len(data) > 100:
                 return httpx.Response(400, json={"errors": [{"title": "too many tracks in one request"}]})
             for t in data:
-                if t.get("type") != "songs" or t.get("id") not in self.songs_by_id:
+                sid = t.get("id", "")
+                if t.get("type") == "library-songs" and sid.startswith("i."):
+                    t["id"] = sid[2:]
+                elif t.get("type") != "songs":
+                    return httpx.Response(400, json={"errors": [{"title": f"invalid track {t}"}]})
+                if t["id"] not in self.songs_by_id:
                     return httpx.Response(400, json={"errors": [{"title": f"invalid track {t}"}]})
             self.playlists[pid]["tracks"].extend(t["id"] for t in data)
             return httpx.Response(204)
-        m = re.fullmatch(r"/v1/me/library/playlists/([\w.]+)", path)
+        m = re.fullmatch(r"/v1/me/library/playlists/([\w.]+)/tracks/([\w.]+)", path)
         if m and request.method == "DELETE":
-            if self.playlists.pop(m.group(1), None) is None:
+            if "path" not in self.remove_variants:
                 return httpx.Response(404, json={"errors": [{"status": "404"}]})
+            return self._remove(m.group(1), m.group(2))
+        m = re.fullmatch(r"/v1/me/library/playlists/([\w.]+)", path)
+        if m and m.group(1) not in self.playlists:
+            return httpx.Response(404, json={"errors": [{"status": "404"}]})
+        if m and request.method == "GET":
+            return httpx.Response(200, json={"data": [self._playlist_resource(m.group(1))]})
+        if m and request.method == "PATCH":
+            if not self.allow_patch:
+                return httpx.Response(405, json={"errors": [{"status": "405"}]})
+            attrs = (json.loads(request.content or b"{}").get("attributes")) or {}
+            self.playlists[m.group(1)].update(
+                {k: v for k, v in attrs.items() if k in ("name", "description")}
+            )
+            return httpx.Response(204)
+        if m and request.method == "DELETE":
+            if not self.allow_delete_playlist:
+                return httpx.Response(405, json={"errors": [{"status": "405"}]})
+            self.playlists.pop(m.group(1))
             return httpx.Response(204)
         return httpx.Response(404, json={"errors": [{"status": "404"}]})
+
+    def _remove(self, pid: str, library_id: str) -> httpx.Response:
+        if pid not in self.playlists:
+            return httpx.Response(404, json={"errors": [{"status": "404"}]})
+        sid = library_id[2:] if library_id.startswith("i.") else library_id
+        tracks = self.playlists[pid]["tracks"]
+        if sid not in tracks:
+            return httpx.Response(404, json={"errors": [{"status": "404"}]})
+        self.playlists[pid]["tracks"] = [t for t in tracks if t != sid]  # mode=all: every occurrence
+        return httpx.Response(204)
 
     def _playlist_resource(self, pid: str) -> dict:
         p = self.playlists[pid]

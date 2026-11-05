@@ -5,7 +5,7 @@ import time
 import httpx
 import pytest
 
-from apple_music_mcp.tokens import TokenScrapeError, find_bundle_paths, find_jwt, scrape_developer_token
+from apple_music_mcp.apple.tokens import TokenScrapeError, find_bundle_paths, find_jwt, scrape_developer_token
 
 
 def test_find_bundle_paths_prefers_modern_bundle():
@@ -30,5 +30,6 @@ async def test_scrape_reports_clear_error(respx_mock):
     respx_mock.get(url__regex=r"https://music\.apple\.com/.*").mock(
         return_value=httpx.Response(200, text="<html>")
     )
-    with pytest.raises(TokenScrapeError, match="APPLE_MUSIC_DEVELOPER_TOKEN"):
-        await scrape_developer_token()
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(TokenScrapeError, match="APPLE_MUSIC_DEVELOPER_TOKEN"):
+            await scrape_developer_token(http)

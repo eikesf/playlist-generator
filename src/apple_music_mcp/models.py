@@ -118,6 +118,39 @@ class Playlist:
         return data
 
 
+@dataclass
+class PlaylistEntry:
+    """A track as it sits in a library playlist."""
+
+    library_id: str
+    catalog_id: str | None
+    name: str
+    artist: str
+    duration_ms: int | None = None
+
+    @property
+    def reference(self) -> tuple[str, str]:
+        """(id, type) to re-add this entry: catalog song if known, else the library song."""
+        return (self.catalog_id, "songs") if self.catalog_id else (self.library_id, "library-songs")
+
+    @classmethod
+    def from_amp(cls, item: dict[str, Any]) -> PlaylistEntry:
+        attrs = item.get("attributes") or {}
+        play = attrs.get("playParams") or {}
+        return cls(
+            library_id=str(item.get("id")),
+            catalog_id=play.get("catalogId") or None,
+            name=attrs.get("name", ""),
+            artist=attrs.get("artistName", ""),
+            duration_ms=attrs.get("durationInMillis"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["duration"] = format_duration(self.duration_ms)
+        return data
+
+
 def format_duration(ms: int | None) -> str | None:
     if ms is None:
         return None

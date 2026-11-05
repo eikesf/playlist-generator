@@ -26,6 +26,7 @@ ENV_STOREFRONT = "APPLE_MUSIC_STOREFRONT"
 
 DEFAULT_STOREFRONT = "br"
 CREDENTIALS_FILE = "credentials.json"
+STATE_FILE = "state.json"
 
 
 def config_dir() -> Path:
@@ -119,17 +120,56 @@ def load_credentials(path: Path | None = None) -> Credentials:
     return creds
 
 
-def save_credentials(creds: Credentials, path: Path | None = None) -> Path:
-    """Persist credentials atomically with owner-only permissions."""
-    path = path or credentials_path()
+def write_private_json(path: Path, data: dict) -> Path:
+    """Write JSON atomically with owner-only permissions (dir 0700, file 0600)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
         os.chmod(path.parent, 0o700)
-    creds.saved_at = time.time()
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
-        json.dump(asdict(creds), fh, indent=2)
+        json.dump(data, fh, indent=2)
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
     return path
+
+
+def save_credentials(creds: Credentials, path: Path | None = None) -> Path:
+    """Persist credentials atomically with owner-only permissions."""
+    creds.saved_at = time.time()
+    return write_private_json(path or credentials_path(), asdict(creds))
+
+
+class CredentialStore:
+    """Load/save credentials at a fixed path (injectable for tests and the CLI)."""
+
+    def __init__(self, path: Path | None = None):
+        self.path = path or credentials_path()
+
+    def load(self) -> Credentials:
+        return load_credentials(self.path)
+
+    def save(self, creds: Credentials) -> Path:
+        return save_credentials(creds, self.path)
+
+
+class StateStore:
+    """Small non-secret runtime state (e.g. which playlist-edit strategy works on this account)."""
+
+    def __init__(self, path: Path | None = None):
+        self.path = path or config_dir() / STATE_FILE
+
+    def load(self) -> dict:
+        try:
+            data = json.loads(self.path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def get(self, key: str, default=None):
+        return self.load().get(key, default)
+
+    def set(self, key: str, value) -> None:
+        data = self.load()
+        data[key] = value
+        write_private_json(self.path, data)

@@ -65,9 +65,9 @@ def test_score_rejects_wrong_artist():
     assert score(req, _song("Gravity", "Boris Brejcha"))[0] < 80
 
 
-async def test_resolve_tracks_end_to_end(client):
+async def test_resolve_tracks_end_to_end(app):
     report = await resolve_tracks(
-        client,
+        app.catalog,
         [
             "Charlotte de Witte - Doppler",
             "Charlotte de Witte - Doppler (Radio Edit)",  # duplicate of the original

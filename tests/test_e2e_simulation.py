@@ -4,18 +4,15 @@ from __future__ import annotations
 
 from mcp import Client
 
-from apple_music_mcp.client import AppleMusicClient
 from apple_music_mcp.config import Credentials, load_credentials
 from apple_music_mcp.server import build_server
 
-
-async def _no_sleep(_: float) -> None:
-    return None
+from .conftest import build_app
 
 
 async def test_techno_set_is_created_in_order(fake_apple, tmp_path):
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: AppleMusicClient(creds, sleep=_no_sleep), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
 
     # Journey order chosen by the curator: atmospheric → groove → build → peak → cooldown.
     journey = [
@@ -69,7 +66,7 @@ async def test_techno_set_is_created_in_order(fake_apple, tmp_path):
 
 async def test_create_playlist_resolves_free_text_in_one_call(fake_apple, tmp_path):
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: AppleMusicClient(creds, sleep=_no_sleep), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
     async with Client(server) as c:
         created = (
             await c.call_tool(
