@@ -14,3 +14,4 @@ Short records of the decisions that shaped this project: the context, the decisi
 | [0008](0008-local-credentials-and-secret-scanning.md) | Credentials stay on the Mac (0600) and a secret scan guards the repo | Accepted |
 | [0009](0009-stacked-pull-requests.md) | Deliver in small stacked pull requests, one issue each | Accepted |
 | [0010](0010-refresh-never-lose-a-track.md) | Refresh never loses a track: staging playlist, archive, explicit confirmation | Accepted |
+| [0011](0011-familiarity-mix.md) | Familiarity mix: known songs and known artists are separate targets | Accepted |

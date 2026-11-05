@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from ..config import credentials_path
+from ..curation.familiarity import MixTargets
 from ..resolver import resolve_tracks
 from .base import ContainerProvider, tool_errors
 
@@ -72,18 +73,25 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
 
     @mcp.tool(name="resolve_tracks")
     @tool_errors
-    async def resolve_tracks_tool(tracks: list[str]) -> dict[str, Any]:
+    async def resolve_tracks_tool(
+        tracks: list[str], known_tracks_pct: float | None = None, known_artists_pct: float | None = None
+    ) -> dict[str, Any]:
         """Verify a list of tracks against the Apple Music catalog, in order.
 
         Each item: "Artist1, Artist2 - Title (Remix)". Returns per-track status (matched /
         low_confidence / not_found), the catalog `song_ids_in_order` for matched tracks, duplicates
         removed and the total duration. Only use ids from `matched` (or low_confidence after review).
-        When logged in, each match is tagged `familiarity` known/new (from the user's library and
-        recently played) and `disliked`/`loved` from their ratings; the summary gives the real
-        known/new ratio. Drop disliked tracks.
+        When logged in, each match gets `familiarity`: known_track / known_artist_new_track /
+        new_artist (from the user's library, recently played and top artists) and `disliked`/`loved`
+        from their ratings; the summary gives the real known_tracks_pct and known_artists_pct. Pass the
+        user's targets to get `summary.mix_check` (deltas + what to swap). Drop disliked tracks.
         """
         app = provider.get()
         report = await resolve_tracks(app.catalog, list(tracks))
         if app.has_user_token:
-            return await app.discovery.annotate(report)
+            targets = None
+            if known_tracks_pct is not None or known_artists_pct is not None:
+                kt = known_tracks_pct if known_tracks_pct is not None else 0
+                targets = MixTargets(kt, known_artists_pct if known_artists_pct is not None else kt)
+            return await app.discovery.annotate(report, targets)
         return report.to_dict()

@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
+from ..curation.familiarity import MixTargets, mix_counts
 from ..curation.planner import plan_playlist as make_plan
 from ..curation.profiles import PROFILES, get_profile
 from ..curation.sequencer import TrackFeatures
@@ -66,12 +67,25 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
 
     @mcp.tool()
     async def plan_playlist(
-        purpose: str, duration_minutes: float | None = None, track_count: int | None = None
+        purpose: str,
+        duration_minutes: float | None = None,
+        track_count: int | None = None,
+        known_tracks_pct: float | None = None,
+        known_artists_pct: float | None = None,
     ) -> dict[str, Any]:
         """Build the plan for a playlist from its purpose (key or free text like "treino", "set de techno",
         "estudo") and its size (minutes or tracks). Returns acts with minutes, number of tracks, target
-        energy and BPM per act, vocals and transition rules. Curate against this plan."""
-        return make_plan(get_profile(purpose), duration_minutes, track_count).to_dict()
+        energy and BPM per act, vocals and transition rules.
+
+        Pass the user's familiarity targets to get `familiarity_mix`: how many tracks should be
+        songs they already know (`known_tracks_pct`), how many by artists they know
+        (`known_artists_pct`, includes the known songs) and how many by new artists."""
+        plan = make_plan(get_profile(purpose), duration_minutes, track_count).to_dict()
+        if known_tracks_pct is not None or known_artists_pct is not None:
+            kt = known_tracks_pct if known_tracks_pct is not None else 0
+            ka = known_artists_pct if known_artists_pct is not None else kt
+            plan["familiarity_mix"] = mix_counts(plan["total_tracks"], MixTargets(kt, ka))
+        return plan
 
     @mcp.tool(name="order_tracks")
     @tool_errors

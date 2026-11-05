@@ -35,6 +35,8 @@ EXPECTED_TOOLS = {
     "lookup_bpm",
     "plan_playlist_refresh",
     "apply_playlist_refresh",
+    "known_tracks",
+    "deep_cuts",
 }
 
 
