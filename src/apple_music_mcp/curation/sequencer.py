@@ -206,6 +206,47 @@ class Sequencer:
             return sorted(unique, key=lambda t: t.energy or 0)
         return self._improve(self._greedy(unique))
 
+    def insert(
+        self, base: list[TrackFeatures], new: list[TrackFeatures]
+    ) -> tuple[list[TrackFeatures], list[dict[str, Any]]]:
+        """Place each new track at its best slot while keeping ``base`` in its exact order.
+
+        Repeatedly picks the (new track, slot) pair with the smallest cost increase, so the
+        track that fits most clearly is placed first and later choices see it.
+        """
+        order = list(base)
+        existing = {t.id for t in order}
+        pending = list({t.id: t for t in new if t.id not in existing}.values())
+        placed_ids: set[str] = set()
+        while pending:
+            current = self.total_cost(order)
+            best: tuple[float, int, int] | None = None  # (delta, slot, pending index)
+            for k, track in enumerate(pending):
+                for slot in range(len(order) + 1):
+                    candidate = order[:slot] + [track] + order[slot:]
+                    delta = self.total_cost(candidate) - current
+                    if best is None or delta < best[0] - 1e-9:
+                        best = (delta, slot, k)
+            assert best is not None
+            _, slot, k = best
+            order.insert(slot, pending.pop(k))
+            placed_ids.add(order[slot].id)
+        targets = self._slot_targets(order)
+        placements = []
+        for i, t in enumerate(order):
+            if t.id in placed_ids:
+                placements.append(
+                    {
+                        "id": t.id,
+                        "track": f"{t.artist} - {t.title}".strip(" -"),
+                        "position": i + 1,
+                        "act": self.profile.acts[targets[i][1]].name,
+                        "after": _label(order[i - 1]) if i else None,
+                        "before": _label(order[i + 1]) if i + 1 < len(order) else None,
+                    }
+                )
+        return order, placements
+
     # ---------------------------------------------------------------- report
     def report(self, order: list[TrackFeatures]) -> dict[str, Any]:
         targets = self._slot_targets(order)
@@ -252,6 +293,22 @@ class Sequencer:
             "warnings": warnings,
             "note": "BPM and energy are estimates supplied by the curator, not catalog data.",
         }
+
+
+def _label(t: TrackFeatures) -> str:
+    return f"{t.artist} - {t.title}".strip(" -") or t.id
+
+
+def insert_tracks(profile: Profile, base: list[TrackFeatures], new: list[TrackFeatures]) -> dict[str, Any]:
+    """Keep ``base`` order, slot ``new`` tracks where they fit the curve best."""
+    sequencer = Sequencer(profile)
+    order, placements = sequencer.insert(base, new)
+    report = sequencer.report(order)
+    report["inserted"] = placements
+    skipped = sorted({t.id for t in new} & {t.id for t in base})
+    if skipped:
+        report["warnings"].append(f"Already in the playlist, not added again: {skipped}")
+    return report
 
 
 def order_tracks(profile: Profile, tracks: list[TrackFeatures]) -> dict[str, Any]:

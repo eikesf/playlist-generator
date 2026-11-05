@@ -28,6 +28,7 @@ EXPECTED_TOOLS = {
     "remove_tracks_from_playlist",
     "resequence_playlist",
     "rename_playlist",
+    "insert_tracks_into_playlist",
 }
 
 

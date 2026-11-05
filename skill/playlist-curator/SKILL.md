@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -85,15 +85,19 @@ If `create_playlist` fails with `AUTH` and he cannot log in right now, call `exp
 
 Every edit goes straight to his Apple Music library. Never ask him to drag tracks by hand.
 
-1. Find it with `list_playlists`, then read the current order with `get_playlist_tracks` (each track has an `id`).
-2. Pick the tool for the change:
-   - **New tracks or several adjustments** (the usual case): verify the new tracks with `resolve_tracks`. Then call `resequence_playlist` with the purpose and the full final set: kept tracks plus new ones, each with estimated `bpm` and `energy`. It re-sequences everything along the energy curve, adds the new tracks, removes the dropped ones and puts everything in order in one call.
-   - **Only the order changes**: `reorder_playlist` with the ids in the new order (same tracks).
-   - **Remove tracks**: `remove_tracks_from_playlist`.
-   - **Exact final list you already ordered**: `sync_playlist`.
+1. Find the playlist with `list_playlists`, then read the current order with `get_playlist_tracks` (each track has an `id`). Infer the purpose from the playlist (name, description, how it was built) and confirm it in one line if unsure.
+2. **Adding tracks (the usual case): insert each new track where it fits, never reshuffle.**
+   - Verify the new tracks with `resolve_tracks`.
+   - Estimate `bpm` and `energy` for the new tracks **and** for the tracks already in the playlist (`current_estimates`, ids from `get_playlist_tracks`). The better the estimates, the better the placement.
+   - Call `insert_tracks_into_playlist` with the purpose, `new_tracks` and `current_estimates`. The tracks already in the playlist keep their exact order, and each new track goes into the slot that best keeps the vibe: the energy curve, smooth BPM steps and artist spacing. Pin `act` (e.g. "Cooldown") when he says where a track should go.
+   - Tell him where each one landed (`inserted`: position, act, between which tracks).
+3. **Removing tracks**: `remove_tracks_from_playlist` with the ids. The rest keeps its order. Confirm which tracks went out.
+4. Other changes:
+   - **Reorganize everything from scratch** (only when he asks): `resequence_playlist` with the full set and estimates.
+   - **Exact order he dictates**: `reorder_playlist` (same tracks) or `sync_playlist` (exact final list).
    - **Name or description**: `rename_playlist`.
-   - Appending at the end without re-sequencing: `add_tracks_to_playlist`.
-3. Read the result: `verified_order: true` means the library now matches. If `strategy` is `rebuild`, Apple refused in-place editing, so the playlist was recreated with the same name and its link changed. Tell him and give the new link. Pass on any `warnings` (for example an old copy to delete in the Music app).
+   - `add_tracks_to_playlist` only appends at the end. Use it only if he explicitly wants the tracks at the end.
+5. Read the result: `verified_order: true` means the library now matches. If `strategy` is `rebuild`, Apple refused in-place editing, so the playlist was recreated with the same name, same order and a new link. Tell him and give the new link. Pass on any `warnings` (for example an old copy to delete in the Music app, or tracks without estimates).
 
 ## 9. Follow-up
 

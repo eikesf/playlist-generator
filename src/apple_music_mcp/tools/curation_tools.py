@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
+from ..container import AppContainer
 from ..curation.planner import plan_playlist as make_plan
 from ..curation.profiles import PROFILES, get_profile
 from ..curation.sequencer import TrackFeatures
@@ -26,6 +27,19 @@ class TrackInput(BaseModel):
         default=None, description="Optional; fetched from the catalog when missing"
     )
     act: str | None = Field(default=None, description="Optional: force into an act by name, e.g. 'Peak'")
+
+
+async def fill_durations(app: AppContainer, features: list[TrackFeatures]) -> None:
+    """Fetch missing track durations from the catalog (best effort; timing only)."""
+    missing = [f.id for f in features if not f.duration_ms and not f.id.startswith("i.")]
+    if not missing:
+        return
+    try:
+        durations = {s.id: s.duration_ms for s in await app.catalog.get_songs(missing)}
+    except Exception:  # noqa: BLE001 - durations are a nice-to-have
+        return
+    for f in features:
+        f.duration_ms = f.duration_ms or durations.get(f.id)
 
 
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:
@@ -58,12 +72,5 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         to create_playlist / reorder_playlist), the act of each track, per-act durations and warnings
         (big BPM jumps, artist repeats). Deterministic: same input, same order."""
         features = [TrackFeatures.from_dict(t.model_dump()) for t in tracks]
-        missing = [f.id for f in features if not f.duration_ms]
-        if missing:
-            try:
-                durations = {s.id: s.duration_ms for s in await provider.get().catalog.get_songs(missing)}
-            except Exception:  # noqa: BLE001 - durations are a nice-to-have
-                durations = {}
-            for f in features:
-                f.duration_ms = f.duration_ms or durations.get(f.id)
+        await fill_durations(provider.get(), features)
         return sequence(get_profile(purpose), features)

@@ -8,9 +8,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from ..curation.profiles import get_profile
-from ..curation.sequencer import TrackFeatures, order_tracks
+from ..curation.sequencer import TrackFeatures, insert_tracks, order_tracks
 from .base import ContainerProvider, tool_errors
-from .curation_tools import TrackInput
+from .curation_tools import TrackInput, fill_durations
 
 
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:
@@ -59,23 +59,65 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     async def resequence_playlist(
         playlist_id: str, purpose: str, tracks: list[TrackInput], allow_rebuild: bool = True
     ) -> dict[str, Any]:
-        """Re-sequence an existing playlist after adjustments: pass the full final track set (existing
-        tracks you keep + new ones, each with estimated bpm/energy). It orders them along the purpose's
-        energy curve (same engine as `order_tracks`) and syncs the playlist: new tracks added, dropped
-        tracks removed, everything in the right order. Use after adding songs to keep the set flowing."""
+        """Fully re-sequence an existing playlist (reshuffles everything): pass the full final track set
+        with estimated bpm/energy; it is ordered from scratch along the purpose's energy curve and the
+        playlist is synced. Only use when the user asks to reorganize the whole playlist. To ADD tracks
+        while keeping the current order, use `insert_tracks_into_playlist` instead."""
         app = provider.get()
         features = [TrackFeatures.from_dict(t.model_dump()) for t in tracks]
-        catalog_ids = [f.id for f in features if not f.duration_ms and not f.id.startswith("i.")]
-        if catalog_ids:
-            try:
-                durations = {s.id: s.duration_ms for s in await app.catalog.get_songs(catalog_ids)}
-            except Exception:  # noqa: BLE001
-                durations = {}
-            for f in features:
-                f.duration_ms = f.duration_ms or durations.get(f.id)
+        await fill_durations(app, features)
         sequence = order_tracks(get_profile(purpose), features)
         result = await app.editor.sync(playlist_id, sequence["song_ids_in_order"], allow_rebuild)
         return {"edit": result.to_dict(), "sequence": sequence}
+
+    @mcp.tool()
+    @tool_errors
+    async def insert_tracks_into_playlist(
+        playlist_id: str,
+        purpose: str,
+        new_tracks: list[TrackInput],
+        current_estimates: list[TrackInput] | None = None,
+        allow_rebuild: bool = True,
+    ) -> dict[str, Any]:
+        """Add tracks to an existing playlist, each one at the exact position where it fits the vibe,
+        WITHOUT changing the order of the tracks already there.
+
+        `new_tracks`: verified catalog ids with estimated bpm/energy. `current_estimates`: bpm/energy
+        estimates for the tracks already in the playlist (ids from `get_playlist_tracks`); the better
+        these are, the better the placement. Returns where each track went (position, act, neighbours)."""
+        app = provider.get()
+        entries = await app.library.playlist_tracks(playlist_id)
+        estimates = {t.id: t for t in current_estimates or []}
+        base: list[TrackFeatures] = []
+        for entry in entries:
+            ref = entry.reference[0]
+            given = estimates.get(ref) or estimates.get(entry.library_id)
+            f = (
+                TrackFeatures.from_dict(given.model_dump())
+                if given
+                else TrackFeatures(id=ref, artist=entry.artist)
+            )
+            f.id, f.artist = ref, f.artist or entry.artist
+            f.title = f.title or entry.name
+            f.duration_ms = f.duration_ms or entry.duration_ms
+            base.append(f)
+        new = [TrackFeatures.from_dict(t.model_dump()) for t in new_tracks]
+        await fill_durations(app, new)
+        plan = insert_tracks(get_profile(purpose), base, new)
+        unestimated = sum(1 for f in base if f.energy is None)
+        if unestimated:
+            plan["warnings"].append(
+                f"{unestimated} existing track(s) had no bpm/energy estimate; placement relied on the others."
+            )
+        if not plan["inserted"]:
+            return {"changed": False, "inserted": [], "warnings": plan["warnings"]}
+        result = await app.editor.sync(playlist_id, plan["song_ids_in_order"], allow_rebuild)
+        return {
+            "edit": result.to_dict(),
+            "inserted": plan["inserted"],
+            "existing_order_preserved": True,
+            "warnings": plan["warnings"],
+        }
 
     @mcp.tool()
     @tool_errors
