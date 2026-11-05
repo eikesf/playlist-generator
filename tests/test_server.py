@@ -20,6 +20,9 @@ EXPECTED_TOOLS = {
     "list_playlists",
     "get_playlist_tracks",
     "export_playlist_text",
+    "list_playlist_profiles",
+    "plan_playlist",
+    "order_tracks",
 }
 
 
@@ -118,3 +121,24 @@ async def test_export_playlist_text(server_factory, tmp_path):
     ).structured_content
     assert data["path"].endswith("Set  01.txt") or data["path"].endswith("Set 01.txt")
     assert Path(data["path"]).read_text(encoding="utf-8") == "A - B\nC - D\n"
+
+
+async def test_plan_and_order_tools(server_factory):
+    plan = (
+        await call(server_factory(), "plan_playlist", {"purpose": "treino", "duration_minutes": 60})
+    ).structured_content
+    assert plan["purpose"] == "workout" and plan["total_tracks"] == 16
+    tracks = [
+        {"id": "2001", "artist": "Amelie Lens", "title": "Hypnotized", "bpm": 130, "energy": 9},
+        {"id": "4001", "artist": "Stephan Bodzin", "title": "Singularity", "bpm": 122, "energy": 3},
+        {"id": "1001", "artist": "Charlotte de Witte", "title": "Doppler", "bpm": 132, "energy": 8},
+    ]
+    result = (
+        await call(server_factory(), "order_tracks", {"purpose": "dj_set", "tracks": tracks})
+    ).structured_content
+    assert result["song_ids_in_order"][0] == "4001"
+    assert result["total_duration"] == "20:28"  # durations fetched from the catalog
+    bad = await call(
+        server_factory(), "order_tracks", {"purpose": "dj_set", "tracks": [{"id": "1", "energy": 99}]}
+    )
+    assert bad.is_error
