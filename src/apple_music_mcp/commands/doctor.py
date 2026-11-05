@@ -72,7 +72,8 @@ async def _write_roundtrip(app: AppContainer) -> str:
         pl_id = edit.playlist.id
         detail = (
             f"created with {len(entries)} track(s); reorder via '{edit.strategy}' "
-            f"{'verified' if edit.verified else 'NOT verified'}"
+            f"{'verified' if edit.verified else 'NOT verified'}; "
+            f"removal request shape: {app.library.remove_variant or 'not needed'}"
         )
     except Exception:
         await _cleanup(app, pl.id)
@@ -100,6 +101,59 @@ async def _bpm(app: AppContainer) -> str:
     return "; ".join(parts)
 
 
+async def _recent_played(app: AppContainer) -> str:
+    songs, other = await app.taste.recent_tracks()
+    return (
+        f"{len(songs)} recent songs (+{other} non-song items such as stations); "
+        f"latest: {songs[0].label if songs else 'none'}"
+    )
+
+
+async def _ratings(app: AppContainer) -> str:
+    page = await app.transport.request("GET", "/v1/me/library/songs", params={"limit": 25}, user=True) or {}
+    ids = [
+        str((i.get("attributes") or {}).get("playParams", {}).get("catalogId"))
+        for i in page.get("data", [])
+        if (i.get("attributes") or {}).get("playParams", {}).get("catalogId")
+    ]
+    if not ids:
+        return "no catalog songs in the first library page to check"
+    ratings = await app.taste.ratings(ids)
+    loved = sum(1 for v in ratings.values() if v == 1)
+    disliked = sum(1 for v in ratings.values() if v == -1)
+    return f"checked {len(ids)} library songs: {loved} loved, {disliked} disliked"
+
+
+async def _heavy_rotation(app: AppContainer) -> str:
+    data = (
+        await app.transport.request("GET", "/v1/me/history/heavy-rotation", params={"limit": 10}, user=True)
+        or {}
+    )
+    items = data.get("data") or []
+    artists = {(i.get("attributes") or {}).get("artistName") for i in items} - {None}
+    return f"{len(items)} items ({', '.join(sorted(artists)[:3]) or 'no artists'})"
+
+
+async def _similar_artists(app: AppContainer) -> str:
+    artist = await app.catalog.find_artist("Charlotte de Witte")
+    if not artist:
+        raise AppleMusicError("artist lookup failed")
+    similar = await app.catalog.similar_artists(artist.id, limit=5)
+    if not similar:
+        raise AppleMusicError("no similar artists returned (view may not exist)")
+    return ", ".join(a.name for a in similar)
+
+
+async def _music_app_stats(app: AppContainer) -> str:
+    playlists = await app.library.list_playlists(limit=20)
+    if not playlists:
+        raise AppleMusicError("no library playlist to read stats from")
+    stats = await app.music_app.playlist_stats(playlists[0].name)
+    played = sum(1 for s in stats if s.played)
+    favorites = sum(1 for s in stats if s.favorited)
+    return f"'{playlists[0].name}': {len(stats)} tracks, {played} with plays, {favorites} favorites"
+
+
 DEFAULT_CHECKS: list[Check] = [
     Check("developer token", _developer_token),
     Check("catalog search", _catalog),
@@ -107,6 +161,11 @@ DEFAULT_CHECKS: list[Check] = [
     Check("BPM databases", _bpm, required=False),
     Check("user token", _account, proves_login=True),
     Check("library access", _library, needs_login=True),
+    Check("recently played (unverified endpoint)", _recent_played, required=False, needs_login=True),
+    Check("song ratings (unverified endpoint)", _ratings, required=False, needs_login=True),
+    Check("heavy rotation (unverified endpoint)", _heavy_rotation, required=False, needs_login=True),
+    Check("similar artists (unverified endpoint)", _similar_artists, required=False),
+    Check("Music app stats via AppleScript (macOS)", _music_app_stats, required=False, needs_login=True),
     Check("create + reorder playlist (write test)", _write_roundtrip, needs_login=True, writes=True),
 ]
 

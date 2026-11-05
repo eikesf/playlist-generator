@@ -169,3 +169,25 @@ def test_schedule_refresh_writes_launch_agent(tmp_path):
         "--notify",
     ]
     assert data["StartCalendarInterval"] == {"Weekday": 1, "Hour": 10, "Minute": 7}
+
+
+async def test_doctor_covers_unverified_endpoints(fake_apple):
+    from apple_music_mcp.local_music import MusicAppReader
+
+    save_credentials(Credentials(media_user_token=fake_apple.user_token, storefront="br"))
+    async with build_app(Credentials(media_user_token=fake_apple.user_token)) as a:
+        await a.library.create_playlist("Warehouse")
+
+    def build(creds):
+        a = build_app(creds)
+        a.music_app = MusicAppReader(system="Linux")  # AppleScript unavailable in CI: must be a warning only
+        return a
+
+    lines: list[str] = []
+    code = await run_doctor(True, build=build, out=lines.append)
+    text = "\n".join(lines)
+    assert code == 0, text
+    for name in ("recently played", "song ratings", "heavy rotation", "similar artists"):
+        assert f"[ok]   {name}" in text, name
+    assert "[warn] Music app stats via AppleScript" in text
+    assert "removal request shape: query" in text

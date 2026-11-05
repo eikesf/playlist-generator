@@ -21,6 +21,8 @@ CACHE_KEY = "taste_cache"
 CACHE_TTL_SECONDS = 6 * 3600
 MAX_LIBRARY_SONGS = 5000
 RATINGS_CHUNK = 100
+RECENT_PAGE_SIZE = 10  # values above 10 are rejected (community reports)
+RECENT_MAX_ITEMS = 50
 
 
 @dataclass
@@ -162,16 +164,28 @@ class TasteService:
             return []
 
     async def _recent(self) -> list[Song]:
+        return (await self.recent_tracks())[0]
+
+    async def recent_tracks(self) -> tuple[list[Song], int]:
+        """Recently played songs (newest first) and how many non-song items were skipped.
+
+        Apple caps the page size at 10 and keeps only the last ~30-50 items, so page with offsets.
+        """
         songs: list[Song] = []
-        for offset in (0, 30, 60):
+        other = 0
+        for offset in range(0, RECENT_MAX_ITEMS, RECENT_PAGE_SIZE):
             data = await self._amp.request(
-                "GET", "/v1/me/recent/played/tracks", params={"limit": 30, "offset": offset}, user=True
+                "GET",
+                "/v1/me/recent/played/tracks",
+                params={"limit": RECENT_PAGE_SIZE, "offset": offset},
+                user=True,
             )
             items = (data or {}).get("data") or []
             songs += [Song.from_amp(i) for i in items if i.get("type") == "songs"]
-            if len(items) < 30:
+            other += sum(1 for i in items if i.get("type") != "songs")
+            if len(items) < RECENT_PAGE_SIZE:
                 break
-        return songs
+        return songs, other
 
     async def _heavy_rotation(self) -> list[str]:
         data = await self._amp.request(
