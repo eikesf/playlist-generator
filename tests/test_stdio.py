@@ -14,7 +14,7 @@ async def test_stdio_server_legacy_handshake(tmp_path):
         env={"APPLE_MUSIC_MCP_CONFIG_DIR": str(tmp_path), "HOME": str(tmp_path)},
     )
     async with Client(params, mode="legacy") as c:
-        assert c.server_info.name == "apple-music"
+        assert c.server_info is not None and c.server_info.name == "apple-music"
         tools = {t.name for t in (await c.list_tools()).tools}
         assert {"create_playlist", "resolve_tracks", "auth_status"} <= tools
         r = await c.call_tool("plan_playlist", {"purpose": "estudo", "duration_minutes": 90})

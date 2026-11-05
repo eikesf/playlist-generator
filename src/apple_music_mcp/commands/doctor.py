@@ -130,7 +130,7 @@ async def _heavy_rotation(app: AppContainer) -> str:
         or {}
     )
     items = data.get("data") or []
-    artists = {(i.get("attributes") or {}).get("artistName") for i in items} - {None}
+    artists = {str(name) for i in items if (name := (i.get("attributes") or {}).get("artistName"))}
     return f"{len(items)} items ({', '.join(sorted(artists)[:3]) or 'no artists'})"
 
 

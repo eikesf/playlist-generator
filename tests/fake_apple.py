@@ -402,7 +402,7 @@ class FakeAppleMusic:
             if len(data) > 100:
                 return httpx.Response(400, json={"errors": [{"title": "too many tracks in one request"}]})
             for t in data:
-                sid = t.get("id", "")
+                sid = str(t.get("id", ""))
                 if t.get("type") == "library-songs" and sid.startswith("i."):
                     t["id"] = sid[2:]
                 elif t.get("type") != "songs":
