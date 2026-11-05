@@ -86,8 +86,8 @@
 
 ## 6. PRs #31 and #33 against the guide
 
-- **#33** (Apple-only, pending playlists): aligned with the guide (§1, §2). Merge.
-- **#31** (familiarity mix): the structure is reusable (bucket model, mix check, `known_tracks`, `deep_cuts`), but the *definitions* diverge (§4 above). Recommendation: merge, then change the definitions in Phase 2 once play-count snapshots exist. Waiting on the owner's choice (guide §3.4).
+- **#33** (Apple-only, pending playlists): aligned with the guide (§1, §2). **Merged 2026-11-05.**
+- **#31** (familiarity mix): the structure is reusable (bucket model, mix check, `known_tracks`, `deep_cuts`), but the *definitions* diverge (§4 above). **Merged 2026-11-05** by owner decision. The definitions will be reworked in Phase 2 (known = loved or ≥ `KNOWN_MIN_PLAYS` plays; level 2 = % known within known artists).
 
 ## 7. Validation log (to be filled during §3.3)
 

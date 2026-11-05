@@ -1,6 +1,6 @@
 # Phase 0 — Risk assessment of the unofficial Apple Music web API
 
-**Date:** 2026-11-05 · **Decision owner:** Eike · **Status:** awaiting decision (GATE)
+**Date:** 2026-11-05 · **Decision owner:** Eike · **Status:** decided 2026-11-05: **option F (hybrid) with mitigations**
 
 ## 1. How the code authenticates today
 
@@ -72,3 +72,14 @@ Under guide §3.2 ("if the account risk is medium or high, stop and present the 
 **Proceed with mitigations, using option F (hybrid).** No free option can search the catalog and add new songs without the web-player API. A or F is required for the product the owner wants. F cuts the exposure to the smallest practical surface. If the owner considers the terms clause unacceptable, the only zero-cost fallback is **B**, which means a library-only tool with no discovery.
 
 **Decision needed from the owner (GATE):** F with mitigations / A as-is / B only.
+
+## 7. Decision record (2026-11-05)
+
+| Topic | Decision |
+|---|---|
+| Approach | **F, hybrid with mitigations** (§3, §5) |
+| Recently played collection | Allowed, low frequency, inside the owner's listening windows: **10:30** (covers the 08:00–12:00 workout window) and **22:30** (evening). Both times configurable. The history keeps only the last ~30–50 items, so a long session can overflow one check. The collector records how many new items each run found, so the schedule can be tuned with data. |
+| Notifications / dead man's switch | Free third-party services (ntfy.sh with a random topic, healthchecks.io). Messages never contain tokens. |
+| Persistence | SQLite through SQLAlchemy 2.0 (Core) + Alembic migrations |
+| Typing / lint | mypy (strict) + ruff on **all** modules, legacy code refactored |
+| Weekly discoveries | Curated by Claude itself through a Claude Desktop scheduled task on the Mac [VERIFY in §3.3] |
