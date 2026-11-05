@@ -66,7 +66,7 @@ def _server(fake_apple, tmp_path, token="default"):
     creds = Credentials(
         media_user_token=fake_apple.user_token if token == "default" else token, storefront="br"
     )
-    return build_server(lambda: build_app(creds), export_dir=tmp_path)
+    return build_server(lambda: build_app(creds))
 
 
 async def test_resolve_reports_familiarity_buckets_and_dislikes(fake_apple, tmp_path):

@@ -12,7 +12,7 @@ from .conftest import build_app
 
 async def test_techno_set_is_created_in_order(fake_apple, tmp_path):
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds))
 
     # Journey order chosen by the curator: atmospheric → groove → build → peak → cooldown.
     journey = [
@@ -66,7 +66,7 @@ async def test_techno_set_is_created_in_order(fake_apple, tmp_path):
 
 async def test_create_playlist_resolves_free_text_in_one_call(fake_apple, tmp_path):
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds))
     async with Client(server) as c:
         created = (
             await c.call_tool(
@@ -86,7 +86,7 @@ async def test_create_playlist_resolves_free_text_in_one_call(fake_apple, tmp_pa
 async def test_purpose_driven_flow_plan_resolve_order_create(fake_apple, tmp_path):
     """User: "a short techno set that builds like a DJ set". Claude follows the skill's steps."""
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds))
     # Claude's estimates (energy 1-10, BPM) for tracks it proposes, in arbitrary order.
     estimates = {
         "Boris Brejcha - Gravity (Ann Clue Remix)": (130, 8),
