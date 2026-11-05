@@ -92,6 +92,8 @@ DEFAULT_CATALOG = [
     ),
     FakeSong("7001", "Opus", "Eric Prydz", "Opus", 543000, ("Dance", "Electronic", "Music")),
     FakeSong("8001", "Café del Mar (Michael Woods Remix)", "Energy 52", "Café del Mar", 412000),
+    FakeSong("9001", "Eternity", "Anyma", "Genesys", 401000),
+    FakeSong("9002", "Syren", "Anyma", "Genesys", 389000),
 ]
 
 ARTISTS = {
@@ -99,6 +101,7 @@ ARTISTS = {
     "a2": ("Amelie Lens", ["2001", "2002", "2003"]),
     "a3": ("Stephan Bodzin", ["4001", "4002"]),
     "a4": ("Boris Brejcha", ["5001", "5002"]),
+    "a5": ("Anyma", ["9001", "9002"]),
 }
 
 
@@ -117,6 +120,13 @@ class FakeAppleMusic:
     allow_patch: bool = True
     allow_delete_playlist: bool = True
     fail_add_after: int | None = None  # make the Nth add-tracks POST fail (to test restore)
+    library_song_ids: list[str] = field(default_factory=lambda: ["1001", "2001", "7001"])
+    recent_ids: list[str] = field(default_factory=lambda: ["1002"])
+    ratings: dict[str, int] = field(default_factory=lambda: {"5002": -1, "2001": 1})
+    similar: dict[str, list[str]] = field(
+        default_factory=lambda: {"a1": ["a2", "a4", "a5"], "a2": ["a1", "a3"], "a3": ["a2"], "a4": ["a1"]}
+    )
+    heavy_rotation: bool = True
     _adds: int = 0
     _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
 
@@ -211,6 +221,15 @@ class FakeAppleMusic:
                 if arts:
                     results["artists"] = {"data": arts[:limit]}
             return httpx.Response(200, json={"results": results})
+        m = re.fullmatch(rf"/v1/catalog/{sf}/artists/(\w+)/view/similar-artists", path)
+        if m:
+            if m.group(1) not in ARTISTS:
+                return httpx.Response(404, json={"errors": [{"status": "404"}]})
+            data = [
+                {"id": a, "type": "artists", "attributes": {"name": ARTISTS[a][0], "genreNames": ["Techno"]}}
+                for a in self.similar.get(m.group(1), [])
+            ]
+            return httpx.Response(200, json={"data": data})
         m = re.fullmatch(rf"/v1/catalog/{sf}/artists/(\w+)/view/top-songs", path)
         if m:
             if m.group(1) not in ARTISTS:
@@ -225,6 +244,46 @@ class FakeAppleMusic:
         return httpx.Response(404, json={"errors": [{"status": "404"}]})
 
     def _me(self, request: httpx.Request, path: str) -> httpx.Response:
+        q = parse_qs(urlparse(str(request.url)).query)
+        if path == "/v1/me/library/songs":
+            data = [
+                {
+                    "id": f"i.{sid}",
+                    "type": "library-songs",
+                    "attributes": {
+                        "name": self.songs_by_id[sid].name,
+                        "artistName": self.songs_by_id[sid].artist,
+                        "playParams": {"id": f"i.{sid}", "catalogId": sid},
+                    },
+                }
+                for sid in self.library_song_ids
+            ]
+            return httpx.Response(200, json={"data": data})
+        if path == "/v1/me/recent/played/tracks":
+            offset = int(q.get("offset", ["0"])[0])
+            ids = self.recent_ids[offset : offset + 30]
+            return httpx.Response(
+                200, json={"data": [self.songs_by_id[i].resource(self.storefront) for i in ids]}
+            )
+        if path == "/v1/me/history/heavy-rotation":
+            if not self.heavy_rotation:
+                return httpx.Response(200, json={"data": []})
+            album = {
+                "id": "1440",
+                "type": "albums",
+                "attributes": {"name": "Hypnotized - EP", "artistName": "Amelie Lens"},
+            }
+            return httpx.Response(200, json={"data": [album]})
+        if path == "/v1/me/ratings/songs":
+            ids = q.get("ids", [""])[0].split(",")
+            data = [
+                {"id": i, "type": "ratings", "attributes": {"value": self.ratings[i]}}
+                for i in ids
+                if i in self.ratings
+            ]
+            if not data:
+                return httpx.Response(404, json={"errors": [{"status": "404"}]})
+            return httpx.Response(200, json={"data": data})
         if path == "/v1/me/storefront":
             return httpx.Response(200, json={"data": [{"id": self.storefront, "type": "storefronts"}]})
         if path == "/v1/me/library/playlists" and request.method == "GET":

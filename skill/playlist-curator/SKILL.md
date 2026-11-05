@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -27,6 +27,8 @@ Ask up to 4 questions in one round (use AskUserQuestion when available). Skip th
 - **Known vs new ratio**: 40/60, 50/50, 20/80.
 - **Vocals**: ethereal/sparse, mostly instrumental, prominent.
 - Sub-genres to include or avoid.
+
+Call `my_taste_profile` once (cached). Use his top artists and heavy rotation to suggest reference artists if he has none, and to recognize what he already listens to a lot.
 
 Also ask for reference artists and one reference track that captures the vibe. If an artist name looks like a speech-to-text mangling, confirm the spelling (or check with `search_songs`) before going further.
 
@@ -48,13 +50,16 @@ If the purpose is unclear, call `list_playlist_profiles` and pick the closest on
 
 ## 4. Gather and verify (never from memory alone)
 
-1. For each core artist, call `artist_top_songs` (limit 10) to see what exists and what is popular.
-2. Draft the full list from your knowledge plus those results, one line per track: `Artist1, Artist2 - Title (Remix)`, grouped by the act you intend.
-3. Call `resolve_tracks` with the whole list (batches of up to 40 lines). Rules:
+1. **Known share**: for each core artist, call `artist_top_songs` (limit 10) to see what exists and what is popular.
+2. **New share**: call `discover_tracks` with the reference artists as `seed_artists`. It returns top songs of **similar artists from Apple's catalog** that he does **not** already know (not in his library or recently played) and has not disliked. Prefer these over discoveries from memory. Use `similar_artists` to explore one artist further.
+3. Draft the full list, one line per track (`Artist1, Artist2 - Title (Remix)`), grouped by the act you intend.
+4. Call `resolve_tracks` with the whole list (batches of up to 40 lines). Rules:
    - Use only `matched` tracks. Review `low_confidence` ones (candidates are listed) and either pick a candidate with `search_songs` or drop it.
    - `not_found`: replace it with another track by the same artist (check `artist_top_songs`) or drop it. Never invent ids.
+   - **`disliked: true`: drop it.** He rated it "dislike".
    - Duplicates (radio edit vs original) are removed automatically. Keep the original or extended mix for DJ sets and the radio edit for workouts.
-4. Resolve replacements until the list is clean and the total duration is within ±5% of the plan.
+5. **Check the real known/new ratio** in the summary (`known`, `new`, `known_ratio`). Each track has `familiarity` known/new, taken from his library and listening history. If the ratio is off from what he asked (e.g. 40/60), swap tracks using `discover_tracks` (more new) or `artist_top_songs` of his top artists (more known).
+6. Resolve replacements until the list is clean and the total duration is within ±5% of the plan.
 
 ## 5. Sequence
 

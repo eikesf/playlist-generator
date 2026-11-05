@@ -47,6 +47,8 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 
 - **Understands the purpose** (study, workout, running, party, DJ-style set, chill, sleep, genre exploration) and asks only the questions that matter: size, energy curve, known vs new ratio, vocals, reference artists and tracks.
 - **Plans the playlist.** From the purpose and duration it computes the acts, how many tracks go in each act, and the target energy and tempo along the way. For example, 2 h of techno comes out as 18 tracks in five acts.
+- **Knows your taste.** It reads your library, recently played tracks, heavy rotation and your love/dislike ratings from Apple Music. Every verified track is tagged *known* or *new*, so the known/new ratio you ask for is measured, not guessed, and disliked songs are flagged and left out.
+- **Discovers with Apple's data**: similar artists from the catalog, and top songs from those artists that you don't know yet.
 - **Verifies every track** against the Apple Music catalog for your storefront. Fuzzy matching handles accents, "feat.", collabs and remixes. It rejects karaoke, live and cover versions and the wrong remixer, removes radio-edit duplicates, and reports what isn't available instead of guessing.
 - **Sequences like a DJ.** Claude estimates BPM and energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
@@ -149,6 +151,9 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | Tool | Purpose |
 |---|---|
 | `auth_status` | Checks the developer token, user token and account storefront, and says what to do if login is needed |
+| `my_taste_profile` | Your top artists (library + recently played + heavy rotation) and recent tracks |
+| `similar_artists` | Artists Apple considers similar |
+| `discover_tracks` | Top songs of similar artists that you don't know yet and haven't disliked |
 | `list_playlist_profiles` | Lists the purpose profiles |
 | `plan_playlist` | Purpose + duration/track count → acts, tracks per act, target energy and BPM, rules |
 | `artist_top_songs` | An artist's most popular catalog songs (to sample their style) |
@@ -301,6 +306,8 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #18 | #13 | Edit existing playlists: reorder, sync, remove, resequence, rename |
 | #19 | #14 | This README and the ADRs |
 | #21 | #20 | Insert new tracks at their best position without reshuffling the playlist |
+| #26 | #22 | Never recreate a playlist without asking; manual steps for small changes |
+| #27 | #23 | Taste-aware discovery: library, recently played, ratings, similar artists |
 
 ## Guia rápido (pt-BR)
 

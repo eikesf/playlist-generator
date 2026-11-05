@@ -78,6 +78,12 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         Each item: "Artist1, Artist2 - Title (Remix)". Returns per-track status (matched /
         low_confidence / not_found), the catalog `song_ids_in_order` for matched tracks, duplicates
         removed and the total duration. Only use ids from `matched` (or low_confidence after review).
+        When logged in, each match is tagged `familiarity` known/new (from the user's library and
+        recently played) and `disliked`/`loved` from their ratings; the summary gives the real
+        known/new ratio. Drop disliked tracks.
         """
-        report = await resolve_tracks(provider.get().catalog, list(tracks))
+        app = provider.get()
+        report = await resolve_tracks(app.catalog, list(tracks))
+        if app.has_user_token:
+            return await app.discovery.annotate(report)
         return report.to_dict()

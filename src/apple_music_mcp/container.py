@@ -10,9 +10,11 @@ from .apple.catalog import CatalogService
 from .apple.http import RetryPolicy, Sleep
 from .apple.itunes import ITunesSearch
 from .apple.library import LibraryService
+from .apple.taste import TasteService
 from .apple.tokens import DeveloperTokenProvider, TokenScraper, scrape_developer_token
 from .apple.transport import AmpTransport
 from .config import Credentials, CredentialStore, StateStore
+from .discovery import DiscoveryService
 from .editing import PlaylistEditor
 
 
@@ -42,6 +44,8 @@ class AppContainer:
         self.catalog = CatalogService(self.transport, self.storefront, fallback=self.itunes)
         self.library = LibraryService(self.transport)
         self.editor = PlaylistEditor(self.library, self.state)
+        self.taste = TasteService(self.transport, self.state)
+        self.discovery = DiscoveryService(self.catalog, self.taste)
 
     def storefront(self) -> str:
         return self.credentials.storefront
