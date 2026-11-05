@@ -13,9 +13,11 @@ from .. import __version__
 from ..apple.errors import AppleMusicError, AuthError
 from ..config import CredentialStore
 from ..container import AppContainer
+from ..local_music import PlaylistNotInMusicApp
 from . import ContainerBuilder, Output, default_container
 
 TEST_PLAYLIST = "apple-music-mcp doctor test"
+MUSIC_APP_ATTEMPTS = 5  # local osascript calls only, no network
 
 
 @dataclass
@@ -146,12 +148,23 @@ async def _similar_artists(app: AppContainer) -> str:
 
 async def _music_app_stats(app: AppContainer) -> str:
     playlists = await app.library.list_playlists(limit=20)
-    if not playlists:
-        raise AppleMusicError("no library playlist to read stats from")
-    stats = await app.music_app.playlist_stats(playlists[0].name)
-    played = sum(1 for s in stats if s.played)
-    favorites = sum(1 for s in stats if s.favorited)
-    return f"'{playlists[0].name}': {len(stats)} tracks, {played} with plays, {favorites} favorites"
+    # Playlists the owner created are the ones refresh manages; catalog playlists added to the
+    # library (can_edit false) are not reachable through AppleScript.
+    own = [p for p in playlists if p.can_edit is not False]
+    if not own:
+        raise AppleMusicError("no playlist created by you in the library to read stats from")
+    skipped = 0
+    for playlist in own[:MUSIC_APP_ATTEMPTS]:
+        try:
+            stats = await app.music_app.playlist_stats(playlist.name)
+        except PlaylistNotInMusicApp:
+            skipped += 1
+            continue
+        played = sum(1 for s in stats if s.played)
+        favorites = sum(1 for s in stats if s.favorited)
+        note = f" ({skipped} playlist(s) not in the Music app skipped)" if skipped else ""
+        return f"'{playlist.name}': {len(stats)} tracks, {played} with plays, {favorites} favorites{note}"
+    raise AppleMusicError(f"none of the first {skipped} library playlists was found in the Music app")
 
 
 DEFAULT_CHECKS: list[Check] = [

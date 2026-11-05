@@ -100,7 +100,11 @@ Run on the owner's Mac, account storefront `br`. Tokens are not recorded.
 | 2026-11-05 | `login` | ok | Signed in, storefront `br` |
 | 2026-11-05 | `doctor` (read) | ok | Developer token valid 57 more days (268 chars); catalog search ok (`apple-music`); iTunes fallback ok; BPM via Deezer ok (126 BPM); user token ok; library: 12 playlists |
 | 2026-11-05 | `doctor --write` | ok | Created a 2-track test playlist, reordered **in place** (verified), deleted it |
-| — | `doctor` checks added in #36: recently played, ratings, heavy rotation, similar artists, Music app stats | pending | The installed CLI predates #36. Reinstall with `uv tool install --force --reinstall --no-cache .` and rerun `doctor` |
+| 2026-11-05 | `doctor`: recently played | ok | 50 songs, 0 non-song items (stations); confirms the ~50-item history |
+| 2026-11-05 | `doctor`: song ratings | ok | 24 library songs checked: 1 loved, 0 disliked |
+| 2026-11-05 | `doctor`: heavy rotation | ok | 7 items |
+| 2026-11-05 | `doctor`: similar artists | ok | 5 artists returned |
+| 2026-11-05 | `doctor`: Music app stats (AppleScript) | **warn → fix** | Automation permission granted (error -1728, not -1743). The check used the first API playlist by name, and two such playlists were not among the Music app's user playlists. The Music app also keeps a trailing space in one name ("Epic songs "). Fix: look up the Music app's own spelling (exact, then normalized), skip playlists it lacks. Rerun pending |
 | — | Dispatch from iPhone calls `auth_status` | pending | — |
 | — | Desktop scheduled task calls an MCP tool | pending | — |
 
