@@ -313,7 +313,12 @@ class FakeAppleMusic:
             return httpx.Response(200, json={"data": data})
         if path == "/v1/me/recent/played/tracks":
             offset = int(q.get("offset", ["0"])[0])
-            ids = self.recent_ids[offset : offset + 30]
+            limit = int(q.get("limit", ["10"])[0])
+            if limit > 10:
+                return httpx.Response(
+                    400, json={"errors": [{"title": "Invalid Parameter Value", "status": "400"}]}
+                )
+            ids = self.recent_ids[offset : offset + limit]
             return httpx.Response(
                 200, json={"data": [self.songs_by_id[i].resource(self.storefront) for i in ids]}
             )

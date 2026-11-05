@@ -18,6 +18,11 @@ class LibraryService:
         self.add_chunk = add_chunk
         self._remove_variant: str | None = None  # learned at runtime, see remove_entry
 
+    @property
+    def remove_variant(self) -> str | None:
+        """Track-removal request shape this account accepted ("query" / "path"), once known."""
+        return self._remove_variant
+
     async def storefront(self) -> str:
         data = await self._amp.request("GET", "/v1/me/storefront", user=True)
         items = (data or {}).get("data") or []

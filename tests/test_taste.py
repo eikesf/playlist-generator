@@ -107,3 +107,27 @@ async def test_taste_tools_via_mcp(fake_apple, tmp_path):
     assert {c["artist"] for c in disc["candidates"]} == {"Charlotte de Witte", "Stephan Bodzin"}
     assert "1001" not in [c["id"] for c in disc["candidates"]]  # Doppler is in the library
     assert missing.is_error
+
+
+async def test_recently_played_pages_by_ten(app, fake_apple):
+    fake_apple.recent_ids = [
+        "1001",
+        "1002",
+        "1003",
+        "2001",
+        "2002",
+        "2003",
+        "3001",
+        "4001",
+        "4002",
+        "5001",
+        "5002",
+        "7001",
+        "8001",
+        "9001",
+        "9002",
+    ]
+    songs, other = await app.taste.recent_tracks()
+    assert [s.id for s in songs] == fake_apple.recent_ids and other == 0
+    pages = [c for c in fake_apple.calls if c[1] == "/v1/me/recent/played/tracks"]
+    assert len(pages) == 2  # 10 + 5
