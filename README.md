@@ -53,6 +53,7 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 - **Sequences like a DJ, with real tempo.** BPM is **measured** from public databases (GetSongBPM with a free key, Deezer without one) and falls back to Claude's estimate only when a track isn't found. Half/double-time readings are corrected. Claude estimates the energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
 - **Edits existing playlists without breaking the vibe.** New tracks are **inserted exactly where they fit**: the existing order stays untouched and each new track goes into the slot that best matches the energy curve, BPM flow and artist spacing. Removing a track keeps everything else in order. You can also reorder, rename or fully re-sequence on request. Edits are verified by reading the playlist back.
+- **Refreshes without losing anything.** A weekly refresh (on request or scheduled on the Mac) fills a separate **"<name> · Descobertas"** playlist with new tracks. Tracks you love or play a lot there are suggested for promotion into the main playlist, at the right position. It suggests rotating out the least-played tracks only when your Mac's play counts can really tell them apart, and it flags tracks you disliked. **Nothing leaves the main playlist unless you confirm it**, and everything that leaves is first copied to **"<name> · Arquivo"**.
 - **Has fallbacks.** If the catalog API is unavailable, search falls back to the public iTunes Search API. If you're logged out, it can export a `.txt` file for Tune My Music.
 - **Diagnoses itself.** `apple-music-mcp doctor --write` tests the whole chain live: token, search, account, create, reorder, delete.
 
@@ -170,9 +171,13 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `remove_tracks_from_playlist` | Removes tracks and keeps the rest in order |
 | `rename_playlist` | Changes the name and/or description |
 | `list_playlists` / `get_playlist_tracks` | Reads your library |
+| `plan_playlist_refresh` | Read-only refresh plan: least-played (when identifiable) and disliked candidates, discoveries added to "· Descobertas", promotion candidates |
+| `apply_playlist_refresh` | Applies only what you confirmed: archive then remove, promote into the main playlist at the best position |
 | `export_playlist_text` | Offline fallback: `.txt` file for Tune My Music |
 
-CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key`.
+CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | refresh --playlist NAME | schedule-refresh --playlist NAME`.
+
+**Weekly refresh on the Mac (optional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` writes a launchd agent (Monday 10:07 by default) and prints the `launchctl load` command. It only runs the read-only plan: it fills "· Descobertas" and shows a notification. Play counts come from the Music app via AppleScript, and macOS asks once for permission (System Settings → Privacy & Security → Automation).
 
 **Better BPM (optional):** create a free key at [getsongbpm.com/api](https://getsongbpm.com/api) and run `apple-music-mcp set-bpm-key`. Without a key, Deezer's public API is used. Tempo data courtesy of [GetSongBPM](https://getsongbpm.com) and [Deezer](https://www.deezer.com). Check their terms for attribution requirements if you share or publish results.
 
@@ -219,7 +224,7 @@ src/apple_music_mcp/
 └── browser_login.py          optional Playwright token capture
 skill/playlist-curator/       the Claude skill (+ zip for upload)
 docs/adr/                     architecture decision records
-tests/                        120+ tests, including a stateful fake Apple API
+tests/                        150+ tests, including a stateful fake Apple API
 ```
 
 **SOLID in practice**
@@ -242,6 +247,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 7. [Stack and layered architecture](docs/adr/0007-stack-and-layered-architecture.md).
 8. [Local credentials and secret scanning](docs/adr/0008-local-credentials-and-secret-scanning.md).
 9. [Small stacked PRs, one issue each](docs/adr/0009-stacked-pull-requests.md).
+10. [Refresh never loses a track: staging, archive, explicit confirmation](docs/adr/0010-refresh-never-lose-a-track.md).
 
 ## Security and privacy
 
@@ -260,7 +266,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
   - MCP protocol tests (an in-process client, plus a **real stdio subprocess** with the legacy `initialize` handshake that Claude Desktop uses)
   - **end-to-end simulations** of whole sessions (plan → resolve → order → create → read back, and create → resequence → remove → rename)
 - **Live checks**: `apple-music-mcp doctor --write` on your Mac.
-- `uv run pytest -q` runs 120+ tests in about 6 seconds, offline.
+- `uv run pytest -q` runs 150+ tests in about 8 seconds, offline.
 
 ## Limitations
 
@@ -312,6 +318,7 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #26 | #22 | Never recreate a playlist without asking; manual steps for small changes |
 | #27 | #23 | Taste-aware discovery: library, recently played, ratings, similar artists |
 | #28 | #24 | Measured BPM from GetSongBPM / Deezer with estimate fallback |
+| #29 | #25 | Weekly refresh: staging playlist, archive-before-remove, promote what you like |
 
 ## Guia rápido (pt-BR)
 

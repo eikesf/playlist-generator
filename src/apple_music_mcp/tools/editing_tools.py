@@ -8,9 +8,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from ..curation.profiles import get_profile
-from ..curation.sequencer import TrackFeatures, insert_tracks, order_tracks
+from ..curation.sequencer import TrackFeatures, order_tracks
+from ..operations import enrich_features, insert_into_playlist
 from .base import ContainerProvider, tool_errors
-from .curation_tools import TrackInput, enrich_features
+from .curation_tools import TrackInput
 
 
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:
@@ -104,46 +105,14 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
         allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
         without that confirmation."""
-        app = provider.get()
-        entries = await app.library.playlist_tracks(playlist_id)
-        estimates = {t.id: t for t in current_estimates or []}
-        new_ids = {t.id for t in new_tracks}
-        base: list[TrackFeatures] = []
-        already = []
-        for entry in entries:
-            ref = entry.reference[0]
-            if ref in new_ids:  # e.g. appended earlier: take it out and place it properly
-                already.append(ref)
-                continue
-            given = estimates.get(ref) or estimates.get(entry.library_id)
-            f = (
-                TrackFeatures.from_dict(given.model_dump())
-                if given
-                else TrackFeatures(id=ref, artist=entry.artist)
-            )
-            f.id, f.artist = ref, f.artist or entry.artist
-            f.title = f.title or entry.name
-            f.duration_ms = f.duration_ms or entry.duration_ms
-            base.append(f)
-        new = [TrackFeatures.from_dict(t.model_dump()) for t in new_tracks]
-        await enrich_features(app, base + new)
-        plan = insert_tracks(get_profile(purpose), base, new)
-        unestimated = sum(1 for f in base if f.energy is None)
-        if unestimated:
-            plan["warnings"].append(
-                f"{unestimated} existing track(s) had no bpm/energy estimate; placement relied on the others."
-            )
-        if already:
-            plan["warnings"].append(f"Already in the playlist, moved to their best position: {already}")
-        if not plan["inserted"]:
-            return {"changed": False, "inserted": [], "warnings": plan["warnings"]}
-        result = await app.editor.sync(playlist_id, plan["song_ids_in_order"], allow_rebuild)
-        return {
-            "edit": result.to_dict(),
-            "inserted": plan["inserted"],
-            "existing_order_preserved": True,
-            "warnings": plan["warnings"],
-        }
+        return await insert_into_playlist(
+            provider.get(),
+            playlist_id,
+            purpose,
+            [t.model_dump() for t in new_tracks],
+            [t.model_dump() for t in current_estimates or []],
+            allow_rebuild,
+        )
 
     @mcp.tool()
     @tool_errors

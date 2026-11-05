@@ -123,3 +123,49 @@ async def test_doctor_reports_bpm_check(fake_apple):
     lines: list[str] = []
     await run_doctor(False, build=build_app, out=lines.append)
     assert any("BPM databases: deezer: 132 BPM" in line for line in lines)
+
+
+async def test_refresh_command_is_read_only_for_main(fake_apple):
+    from apple_music_mcp.commands.refresh import run_refresh
+    from apple_music_mcp.local_music import MusicAppReader
+
+    save_credentials(Credentials(media_user_token=fake_apple.user_token, storefront="br"))
+
+    def build(creds):
+        a = build_app(creds)
+        a.music_app = MusicAppReader(system="Linux")
+        return a
+
+    async with build_app(Credentials(media_user_token=fake_apple.user_token)) as a:
+        pl = await a.library.create_playlist("Warehouse")
+        await a.library.add_tracks(pl.id, ["4001", "1001", "5002"])
+    lines: list[str] = []
+    assert await run_refresh("Warehouse", build=build, out=lines.append) == 0
+    assert "Nada foi removido" in lines[0]
+    assert fake_apple.playlists[pl.id]["tracks"] == ["4001", "1001", "5002"]
+    assert await run_refresh("Missing", build=build, out=lines.append) == 1
+
+
+def test_schedule_refresh_writes_launch_agent(tmp_path):
+    import plistlib
+
+    from apple_music_mcp.commands.refresh import LABEL, schedule_refresh
+
+    path = schedule_refresh(
+        "Warehouse",
+        weekday=1,
+        hour=10,
+        minute=7,
+        executable="/x/apple-music-mcp",
+        path=tmp_path / "agent.plist",
+    )
+    data = plistlib.loads(path.read_bytes())
+    assert data["Label"] == LABEL
+    assert data["ProgramArguments"] == [
+        "/x/apple-music-mcp",
+        "refresh",
+        "--playlist",
+        "Warehouse",
+        "--notify",
+    ]
+    assert data["StartCalendarInterval"] == {"Weekday": 1, "Hour": 10, "Minute": 7}

@@ -33,6 +33,8 @@ EXPECTED_TOOLS = {
     "similar_artists",
     "discover_tracks",
     "lookup_bpm",
+    "plan_playlist_refresh",
+    "apply_playlist_refresh",
 }
 
 
