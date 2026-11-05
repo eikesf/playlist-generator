@@ -50,7 +50,7 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 - **Knows your taste.** It reads your library, recently played tracks, heavy rotation and your love/dislike ratings from Apple Music. Every verified track is tagged *known* or *new*, so the known/new ratio you ask for is measured, not guessed, and disliked songs are flagged and left out.
 - **Discovers with Apple's data**: similar artists from the catalog, and top songs from those artists that you don't know yet.
 - **Verifies every track** against the Apple Music catalog for your storefront. Fuzzy matching handles accents, "feat.", collabs and remixes. It rejects karaoke, live and cover versions and the wrong remixer, removes radio-edit duplicates, and reports what isn't available instead of guessing.
-- **Sequences like a DJ.** Claude estimates BPM and energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
+- **Sequences like a DJ, with real tempo.** BPM is **measured** from public databases (GetSongBPM with a free key, Deezer without one) and falls back to Claude's estimate only when a track isn't found. Half/double-time readings are corrected. Claude estimates the energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
 - **Edits existing playlists without breaking the vibe.** New tracks are **inserted exactly where they fit**: the existing order stays untouched and each new track goes into the slot that best matches the energy curve, BPM flow and artist spacing. Removing a track keeps everything else in order. You can also reorder, rename or fully re-sequence on request. Edits are verified by reading the playlist back.
 - **Has fallbacks.** If the catalog API is unavailable, search falls back to the public iTunes Search API. If you're logged out, it can export a `.txt` file for Tune My Music.
@@ -159,6 +159,7 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `artist_top_songs` | An artist's most popular catalog songs (to sample their style) |
 | `search_songs` | Free-text catalog search (max 25) |
 | `resolve_tracks` | Batch-verifies `Artist1, Artist2 - Title (Remix)` lines: match, low confidence, not found, duplicates, total duration |
+| `lookup_bpm` | Measured BPM from GetSongBPM / Deezer for a list of tracks |
 | `order_tracks` | Sequences verified tracks along the purpose's energy curve using estimated BPM/energy |
 | `create_playlist` | Creates a library playlist from ordered ids or free-text lines (`dry_run` available) |
 | `add_tracks_to_playlist` | Appends tracks |
@@ -171,7 +172,9 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `list_playlists` / `get_playlist_tracks` | Reads your library |
 | `export_playlist_text` | Offline fallback: `.txt` file for Tune My Music |
 
-CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude`.
+CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key`.
+
+**Better BPM (optional):** create a free key at [getsongbpm.com/api](https://getsongbpm.com/api) and run `apple-music-mcp set-bpm-key`. Without a key, Deezer's public API is used. Tempo data courtesy of [GetSongBPM](https://getsongbpm.com) and [Deezer](https://www.deezer.com). Check their terms for attribution requirements if you share or publish results.
 
 ## Tech stack and why
 
@@ -243,7 +246,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 ## Security and privacy
 
 - Your `media-user-token` is stored only in `~/.config/apple-music-mcp/credentials.json` (directory 0700, file 0600). It is sent only to Apple's servers and is masked in all output.
-- Nothing is sent to any third party. The server runs on your Mac and talks only to `music.apple.com`, `amp-api.music.apple.com` and `itunes.apple.com`.
+- Nothing is sent to any third party. The server runs on your Mac and talks only to `music.apple.com`, `amp-api.music.apple.com`, `itunes.apple.com` and, for tempo, `api.deezer.com` and `api.getsong.co` (only artist and title are sent there, never your tokens).
 - The repository never contains credentials. `.gitignore` blocks env files, credential files, browser profiles and keys, and CI runs a secret scan ([`tests/test_secrets.py`](tests/test_secrets.py)) that fails on anything that looks like a token or key. `.env.example` documents the optional variables with empty values.
 - `login` validates a token with Apple **before** saving it.
 - To revoke access, sign out of music.apple.com in the browser where you copied the token, and delete `~/.config/apple-music-mcp/`.
@@ -263,7 +266,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 
 - **Unofficial API.** It's stable in practice, but Apple can change it without notice, and it sits outside the official developer terms. Use it personally, not commercially.
 - **Not verified live by the author's build environment.** It was developed in a sandbox without access to Apple's domains, so run `doctor --write` once after setup. The request shapes come from open-source clients and are encoded in the fake.
-- **BPM and energy are estimates.** Neither Apple nor Spotify (for new apps, since 2024) provides audio features, so the sequencing quality depends on Claude's estimates.
+- **BPM is measured when a database has the track.** Otherwise Claude estimates it. **Energy is always Claude's estimate**, because no free source provides it. Neither Apple nor Spotify (for new apps, since 2024) exposes audio features.
 - **The user token expires** now and then. Run `apple-music-mcp login` again when tools report `AUTH`.
 - **In-place editing depends on your account accepting track removal.** If it doesn't, nothing is changed automatically. Claude shows the exact manual steps and asks whether to recreate the playlist (same name and order, new link), and recommends recreating only for large changes. `doctor --write` tells you which case applies.
 - **Mac only for creation.** The server runs locally, so create playlists from Claude Desktop on the Mac. They sync to the iPhone via iCloud Music Library (Settings → Music → Sync Library).
@@ -308,6 +311,7 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #21 | #20 | Insert new tracks at their best position without reshuffling the playlist |
 | #26 | #22 | Never recreate a playlist without asking; manual steps for small changes |
 | #27 | #23 | Taste-aware discovery: library, recently played, ratings, similar artists |
+| #28 | #24 | Measured BPM from GetSongBPM / Deezer with estimate fallback |
 
 ## Guia rápido (pt-BR)
 

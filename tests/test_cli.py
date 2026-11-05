@@ -108,3 +108,18 @@ def test_server_command_is_absolute():
     cmd = install.server_command()
     assert Path(cmd[0]).is_absolute()
     assert cmd[-1] in {"serve", "apple_music_mcp"}
+
+
+def test_set_bpm_key_saves_and_removes(capsys):
+    assert cli.main(["set-bpm-key", "--key", "abc123"]) == 0
+    assert load_credentials().getsongbpm_api_key == "abc123"
+    assert cli.main(["set-bpm-key", "--key", ""]) == 0
+    assert load_credentials().getsongbpm_api_key is None
+
+
+async def test_doctor_reports_bpm_check(fake_apple):
+    fake_apple.deezer_bpm = {"1001": 132.0}
+    save_credentials(Credentials(media_user_token=fake_apple.user_token, storefront="br"))
+    lines: list[str] = []
+    await run_doctor(False, build=build_app, out=lines.append)
+    assert any("BPM databases: deezer: 132 BPM" in line for line in lines)

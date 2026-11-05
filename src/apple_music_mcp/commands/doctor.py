@@ -88,10 +88,23 @@ async def _cleanup(app: AppContainer, playlist_id: str) -> str:
         return f"could not delete it via API; delete '{TEST_PLAYLIST}' in the Music app"
 
 
+async def _bpm(app: AppContainer) -> str:
+    if not app.bpm.providers:
+        raise AppleMusicError("no BPM provider enabled")
+    parts = []
+    for provider in app.bpm.providers:
+        match = await provider.lookup("Charlotte de Witte", "Doppler")
+        parts.append(f"{provider.name}: {match.bpm:.0f} BPM" if match else f"{provider.name}: not found")
+    if all("not found" in p for p in parts):
+        raise AppleMusicError("; ".join(parts) + " (Claude's estimates will be used)")
+    return "; ".join(parts)
+
+
 DEFAULT_CHECKS: list[Check] = [
     Check("developer token", _developer_token),
     Check("catalog search", _catalog),
     Check("iTunes Search fallback", _itunes, required=False),
+    Check("BPM databases", _bpm, required=False),
     Check("user token", _account, proves_login=True),
     Check("library access", _library, needs_login=True),
     Check("create + reorder playlist (write test)", _write_roundtrip, needs_login=True, writes=True),

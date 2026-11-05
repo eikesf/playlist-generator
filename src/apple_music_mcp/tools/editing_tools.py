@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from ..curation.profiles import get_profile
 from ..curation.sequencer import TrackFeatures, insert_tracks, order_tracks
 from .base import ContainerProvider, tool_errors
-from .curation_tools import TrackInput, fill_durations
+from .curation_tools import TrackInput, enrich_features
 
 
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:
@@ -80,7 +80,7 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         without that confirmation."""
         app = provider.get()
         features = [TrackFeatures.from_dict(t.model_dump()) for t in tracks]
-        await fill_durations(app, features)
+        await enrich_features(app, features)
         sequence = order_tracks(get_profile(purpose), features)
         result = await app.editor.sync(playlist_id, sequence["song_ids_in_order"], allow_rebuild)
         return {"edit": result.to_dict(), "sequence": sequence}
@@ -126,7 +126,7 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             f.duration_ms = f.duration_ms or entry.duration_ms
             base.append(f)
         new = [TrackFeatures.from_dict(t.model_dump()) for t in new_tracks]
-        await fill_durations(app, new)
+        await enrich_features(app, base + new)
         plan = insert_tracks(get_profile(purpose), base, new)
         unestimated = sum(1 for f in base if f.energy is None)
         if unestimated:

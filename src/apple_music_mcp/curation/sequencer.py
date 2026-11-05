@@ -39,6 +39,7 @@ class TrackFeatures:
     energy: float | None = None
     duration_ms: int | None = None
     act: str | None = None  # optional: force the track into a named act
+    bpm_source: str | None = None  # "estimate" (curator) or a database name ("deezer", "getsongbpm")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TrackFeatures:
@@ -50,6 +51,7 @@ class TrackFeatures:
             energy=_num(data.get("energy")),
             duration_ms=int(data["duration_ms"]) if data.get("duration_ms") else None,
             act=(data.get("act") or None),
+            bpm_source=data.get("bpm_source") or ("estimate" if _num(data.get("bpm")) else None),
         )
 
     @property
@@ -265,7 +267,8 @@ class Sequencer:
                     "act": act_name,
                     "target_energy": round(target, 1),
                     "energy": t.energy,
-                    "bpm": t.bpm,
+                    "bpm": round(t.bpm, 1) if t.bpm else t.bpm,
+                    "bpm_source": t.bpm_source,
                     "bpm_step": step,
                 }
             )
@@ -291,7 +294,8 @@ class Sequencer:
             "acts": list(acts.values()),
             "tracks": rows,
             "warnings": warnings,
-            "note": "BPM and energy are estimates supplied by the curator, not catalog data.",
+            "measured_bpm": sum(1 for t in order if t.bpm_source not in (None, "estimate")),
+            "note": "Energy is the curator's estimate; BPM is measured where bpm_source names a database.",
         }
 
 
