@@ -6,12 +6,12 @@ on:
   pull_request:
 
 jobs:
+  # Required check for every PR: fast Linux runners.
   test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -22,5 +22,21 @@ jobs:
           uv pip install -e ".[dev]"
       - name: Lint
         run: uv run --no-sync ruff check .
+      - name: Test
+        run: uv run --no-sync pytest -q
+
+  # macOS runners are scarce (and cost 10x minutes on private repos), so they run only after
+  # merges into develop/main. The app targets macOS, but the suite is OS-independent: AppleScript
+  # and Keychain are behind interfaces and faked in tests.
+  test-macos:
+    if: github.event_name == 'push'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv --python 3.13
+          uv pip install -e ".[dev]"
       - name: Test
         run: uv run --no-sync pytest -q
