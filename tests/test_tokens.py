@@ -109,3 +109,52 @@ def test_find_script_refs():
 
     text = '<script src="/assets/index~ab.js"></script> import("./x~1.js") "//cdn.example/y.js"'
     assert find_script_refs(text) == ["/assets/index~ab.js", "./x~1.js"]
+
+
+def _web_player_jwt(iss: str, exp: float, origin: bool = False) -> str:
+    """FAKE token shaped like the live web player's: ``typ``-first header, root_https_origin claim."""
+    import base64
+    import json
+
+    def b64(obj: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj, separators=(",", ":")).encode()).decode().rstrip("=")
+
+    payload = {"iss": iss, "iat": int(exp) - 86400, "exp": int(exp), "root_https_origin": ["apple.com"]}
+    if origin:
+        payload["origin"] = ["https://example.apple.com"]
+    header = b64({"typ": "JWT", "alg": "ES256", "kid": "FAKEKID000"})
+    return f"{header}.{b64(payload)}.ZmFrZV9zaWduYXR1cmVfbm90X3JlYWw"
+
+
+def test_find_jwt_prefers_web_player_token_over_origin_restricted():
+    """Live bundle (Nov 2026) holds three tokens; the origin-pinned one is rejected by amp-api (401)."""
+    exp = time.time() + 86400
+    pinned = _web_player_jwt("M62YD85FTQ", exp, origin=True)
+    other = _web_player_jwt("5IKPP2IECQ", exp)
+    web = _web_player_jwt("AMPWebPlay", exp)
+    assert web.startswith("eyJ0eXAi")
+    assert find_jwt(f'a="{pinned}";b="{other}";c="{web}"') == web
+    assert find_jwt(f'a="{pinned}";b="{other}"') == other
+    assert find_jwt(f'a="{pinned}"') == pinned  # last resort, still better than nothing
+
+
+async def test_scrape_live_structure_token_in_index_and_bare_asset_refs(respx_mock):
+    """Reproduces music.apple.com: tokens inside index~<hash>.js, preload deps as bare ``assets/x.js``."""
+    from apple_music_mcp.apple.tokens import resolve_script_ref
+
+    exp = time.time() + 86400
+    web = _web_player_jwt("AMPWebPlay", exp)
+    pinned = _web_player_jwt("M62YD85FTQ", exp, origin=True)
+    html = '<script type="module" crossorigin src="/assets/index~cc245af156.js"></script>'
+    index_js = f'const m=["assets/chunk~1.js"];const a="{pinned}";const b="{web}";'
+    respx_mock.get(url__regex=r"https://music\.apple\.com/(us/browse)?$").mock(
+        return_value=httpx.Response(200, text=html)
+    )
+    respx_mock.get("https://music.apple.com/assets/index~cc245af156.js").mock(
+        return_value=httpx.Response(200, text=index_js)
+    )
+    async with httpx.AsyncClient() as http:
+        assert await scrape_developer_token(http) == web
+    base = "https://music.apple.com/assets/index~cc245af156.js"
+    assert resolve_script_ref(base, "assets/chunk~1.js") == "https://music.apple.com/assets/chunk~1.js"
+    assert resolve_script_ref(base, "./chunk~2.js") == "https://music.apple.com/assets/chunk~2.js"
