@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 from mcp import Client
 
-from apple_music_mcp.client import AppleMusicClient
 from apple_music_mcp.config import Credentials
 from apple_music_mcp.server import build_server
+
+from .conftest import build_app
 
 EXPECTED_TOOLS = {
     "auth_status",
@@ -22,16 +23,12 @@ EXPECTED_TOOLS = {
 }
 
 
-async def _no_sleep(_: float) -> None:
-    return None
-
-
 @pytest.fixture
 def server_factory(fake_apple, tmp_path):
     def make(user_token: str | None = "default"):
         token = fake_apple.user_token if user_token == "default" else user_token
         creds = Credentials(media_user_token=token, storefront="br")
-        return build_server(lambda: AppleMusicClient(creds, sleep=_no_sleep), export_dir=tmp_path / "exports")
+        return build_server(lambda: build_app(creds), export_dir=tmp_path / "exports")
 
     return make
 

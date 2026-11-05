@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import re
-import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 from rapidfuzz import fuzz
 
 from .models import Song, format_duration
+from .ports import SongSearcher
+from .text import artist_names, normalize, primary_artist
 
 MATCH_THRESHOLD = 80.0
 LOW_CONFIDENCE_THRESHOLD = 65.0
@@ -66,10 +67,6 @@ STRONG_VERSIONS = {
 # Versions that are essentially the same recording.
 NEUTRAL_VERSIONS = {"remaster", "remastered", "radio", "edit", "extended", "version", "mix", "original"}
 BAD_ARTIST_WORDS = ("karaoke", "tribute", "cover", "made famous", "in the style of", "8-bit", "lullaby")
-
-
-class SongSearcher(Protocol):
-    async def search_songs(self, term: str, limit: int = 10) -> list[Song]: ...
 
 
 @dataclass
@@ -160,16 +157,6 @@ _FEAT_RE = re.compile(r"[\(\[]\s*(feat\.?|ft\.?|featuring|with)\s+[^\)\]]*[\)\]]
 _FEAT_TAIL_RE = re.compile(r"\s+(feat\.?|ft\.?|featuring)\s+.*$", re.I)
 _BRACKET_RE = re.compile(r"[\(\[]([^\)\]]*)[\)\]]")
 _DASH_SUFFIX_RE = re.compile(r"\s+-\s+(.*)$")
-_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
-
-
-def strip_accents(text: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
-
-
-def normalize(text: str) -> str:
-    text = strip_accents(text).lower().replace("&", " and ").replace("$", "s")
-    return _NON_ALNUM_RE.sub(" ", text).strip()
 
 
 def split_title(title: str) -> tuple[str, set[str], str]:
@@ -186,11 +173,6 @@ def split_title(title: str) -> tuple[str, set[str], str]:
     for d in descriptors:
         words |= set(normalize(d).split()) & (VERSION_WORDS | {"original"})
     return normalize(text), words, normalize(" ".join(descriptors))
-
-
-def artist_names(artist: str) -> list[str]:
-    parts = re.split(r",|&| and | x | feat\.? | ft\.? | featuring | vs\.? ", strip_accents(artist).lower())
-    return [normalize(p) for p in parts if normalize(p)]
 
 
 # --------------------------------------------------------------------------- scoring
@@ -297,7 +279,7 @@ def dedupe(resolutions: list[Resolution]) -> ResolveReport:
     kept: list[Resolution] = []
     for r in resolutions:
         if r.status == "matched" and r.song:
-            primary = (artist_names(r.song.artist) or [normalize(r.song.artist)])[0]
+            primary = primary_artist(r.song.artist)
             core, versions, _ = split_title(r.song.name)
             key = (primary, core + "|" + ",".join(sorted(versions & STRONG_VERSIONS)))
             first = seen_ids.get(r.song.id) or seen_keys.get(key)

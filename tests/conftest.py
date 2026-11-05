@@ -40,14 +40,23 @@ def fake_apple(respx_mock):
     return FakeAppleMusic().install(respx_mock)
 
 
+async def no_sleep(_: float) -> None:
+    return None
+
+
+def build_app(creds: config.Credentials, **kwargs):
+    from apple_music_mcp.container import AppContainer
+
+    return AppContainer(creds, sleep=no_sleep, **kwargs)
+
+
 @pytest.fixture
-async def client(fake_apple):
-    """A client with a valid user token and no developer token (it must scrape one)."""
-    from apple_music_mcp.client import AppleMusicClient
+def logged_in_creds(fake_apple):
+    return config.Credentials(media_user_token=fake_apple.user_token, storefront=fake_apple.storefront)
 
-    async def no_sleep(_: float) -> None:
-        return None
 
-    creds = config.Credentials(media_user_token=fake_apple.user_token, storefront=fake_apple.storefront)
-    async with AppleMusicClient(creds, sleep=no_sleep) as c:
-        yield c
+@pytest.fixture
+async def app(logged_in_creds):
+    """A container with a valid user token and no developer token (it must scrape one)."""
+    async with build_app(logged_in_creds) as container:
+        yield container
