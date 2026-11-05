@@ -1,14 +1,19 @@
 """Developer token: discovery from the public web player, caching and refresh.
 
-The music.apple.com web player ships a long-lived developer JWT inside its main JavaScript
-bundle. ``scrape_developer_token`` fetches the HTML, finds ``/assets/index*.js`` bundles and pulls
-the first valid, non-expired JWT. ``DeveloperTokenProvider`` caches it in the credentials and
-re-scrapes when it expires or Apple rejects it (rotation).
+The music.apple.com web player ships long-lived developer JWTs inside its main JavaScript
+bundle (``/assets/index~<hash>.js``, several tokens for different Apple products, all with a
+``{"typ"...`` header). ``scrape_developer_token`` fetches the HTML, crawls the bundle and its chunks
+and picks the best valid, non-expired JWT: the web player's own (``iss: AMPWebPlay``) first, and
+never one restricted to another ``origin`` unless nothing else exists (amp-api answers 401).
+``DeveloperTokenProvider`` caches it in the credentials and re-scrapes when it expires
+or Apple rejects it (rotation).
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -27,6 +32,8 @@ _SCRIPT_RE = re.compile(r"""["'(`]((?:\.{1,2}/|/)?(?:assets/)?[\w.~-]+\.js)["'`)
 # Any compact JWT: base64url('{"') == 'eyJ'. The header may start with "alg", "kid" or "typ".
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
 MAX_SCRIPTS = 40  # bounded crawl of the web player's own JS chunks (fetched only on cache miss)
+WEB_PLAYER_ISSUER = "AMPWebPlay"
+ORIGIN = "https://music.apple.com/"
 PRIORITY_HINTS = ("index", "musickit", "app", "main", "config", "env", "bootstrap", "vendor")
 
 TokenScraper = Callable[[httpx.AsyncClient], Awaitable[str]]
@@ -51,16 +58,39 @@ def find_script_refs(text: str) -> list[str]:
     return seen
 
 
+def _jwt_payload(token: str) -> dict:
+    part = token.split(".")[1]
+    try:
+        data = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _jwt_rank(token: str) -> int:
+    """Lower is better: the web player's own token, then any token not pinned to an ``origin``."""
+    payload = _jwt_payload(token)
+    if payload.get("iss") == WEB_PLAYER_ISSUER:
+        return 0
+    return 2 if "origin" in payload else 1
+
+
 def find_jwt(text: str, now: float | None = None) -> str | None:
-    """First valid, non-expired JWT in ``text`` (also checks URL-encoded config blobs)."""
+    """Best valid, non-expired JWT in ``text`` (also checks URL-encoded config blobs)."""
     now = now if now is not None else time.time()
+    candidates: list[str] = []
     for candidate_text in (text, unquote(text)) if "%22" in text else (text,):
         for match in _JWT_RE.finditer(candidate_text):
             token = match.group(0)
             exp = jwt_expiry(token)
-            if is_jwt(token) and exp is not None and exp > now:
-                return token
-    return None
+            if is_jwt(token) and exp is not None and exp > now and token not in candidates:
+                candidates.append(token)
+    return min(candidates, key=_jwt_rank) if candidates else None
+
+
+def resolve_script_ref(base_url: str, ref: str) -> str:
+    """Absolute URL of a script ref. Bare ``assets/x.js`` (Vite preload deps) is origin-relative."""
+    return urljoin(ORIGIN if ref.startswith("assets/") else base_url, ref)
 
 
 def _priority(url: str) -> tuple[int, int]:
@@ -85,7 +115,7 @@ async def scrape_developer_token(http: httpx.AsyncClient) -> str:
         token = find_jwt(resp.text)
         if token:
             return token
-        queue = [urljoin(page_url, ref) for ref in find_script_refs(resp.text)]
+        queue = [resolve_script_ref(page_url, ref) for ref in find_script_refs(resp.text)]
         if not queue:
             errors.append(f"{page_url}: no JavaScript bundle referenced")
             continue
@@ -93,7 +123,7 @@ async def scrape_developer_token(http: httpx.AsyncClient) -> str:
         while queue and len(visited) < MAX_SCRIPTS:
             queue.sort(key=_priority)
             js_url = queue.pop(0)
-            if js_url in visited or not js_url.startswith("https://music.apple.com/"):
+            if js_url in visited or not js_url.startswith(ORIGIN):
                 continue
             visited.add(js_url)
             try:
@@ -107,7 +137,11 @@ async def scrape_developer_token(http: httpx.AsyncClient) -> str:
             token = find_jwt(js.text)
             if token:
                 return token
-            queue += [u for u in (urljoin(js_url, r) for r in find_script_refs(js.text)) if u not in visited]
+            queue += [
+                u
+                for u in (resolve_script_ref(js_url, r) for r in find_script_refs(js.text))
+                if u not in visited
+            ]
         errors.append(f"{page_url}: no valid JWT in {len(visited)} script(s) checked")
     raise TokenScrapeError(
         "Could not extract the Apple Music developer token from the web player. "
