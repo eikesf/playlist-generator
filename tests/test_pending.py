@@ -8,7 +8,7 @@ from apple_music_mcp.commands.pending import run_finish_pending
 from apple_music_mcp.config import Credentials, save_credentials
 from apple_music_mcp.server import build_server
 
-from .conftest import build_app
+from .conftest import build_app, result_text
 
 
 async def test_expired_login_keeps_playlist_pending_then_finishes(fake_apple):
@@ -18,7 +18,7 @@ async def test_expired_login_keeps_playlist_pending_then_finishes(fake_apple):
             "create_playlist", {"name": "Warehouse", "description": "set", "song_ids": ["4001", "1001"]}
         )
         tools = {t.name for t in (await c.list_tools()).tools}
-    assert res.is_error and "AUTH" in res.content[0].text and "pending" in res.content[0].text
+    assert res.is_error and "AUTH" in result_text(res) and "pending" in result_text(res)
     assert "export_playlist_text" not in tools
     assert fake_apple.playlists == {}
 

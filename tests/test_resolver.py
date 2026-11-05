@@ -43,7 +43,7 @@ def test_score_penalizes_unrequested_versions_and_covers():
     live, live_note = score(req, _song("Singularity (Live)", "Stephan Bodzin"))
     assert good >= 95
     assert karaoke < 65 and note
-    assert live < 80 and "version differs" in live_note
+    assert live < 80 and live_note and "version differs" in live_note
 
 
 def test_score_requires_the_same_remixer():

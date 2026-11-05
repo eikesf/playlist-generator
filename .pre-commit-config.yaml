@@ -11,6 +11,12 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: system
+        types: [python]
+        pass_filenames: false
       - id: secret-guard
         name: secret guard (pytest)
         entry: python -m pytest -q tests/test_secrets.py
