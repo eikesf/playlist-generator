@@ -33,7 +33,7 @@
 - Polling it would also be "monitoring" in the literal sense of §2.1. See the mitigations below.
 
 ### 2.5 Claude Dispatch and scheduled tasks (for running on the Mac)
-- Secondary sources say Dispatch sends tasks from the phone to the Claude Desktop app on your Mac and uses its local files and connectors. It stops if the Mac sleeps or the app closes. **Desktop scheduled tasks run on the Mac** (with a keep-awake option), while cloud scheduled tasks cannot reach local MCP servers ([DataCamp](https://www.datacamp.com/tutorial/claude-cowork-dispatch), [buildtolaunch](https://buildtolaunch.substack.com/p/claude-cowork-scheduled-tasks-vs-routines-vs-loop), [lowcode.agency](https://www.lowcode.agency/blog/claude-dispatch-explained)). **[VERIFY]** against Anthropic's docs and with a live test (audit §7).
+- Secondary sources say Dispatch sends tasks from the phone to the Claude Desktop app on your Mac and uses its local files and connectors. It stops if the Mac sleeps or the app closes. **Desktop scheduled tasks run on the Mac** (with a keep-awake option), while cloud scheduled tasks cannot reach local MCP servers ([DataCamp](https://www.datacamp.com/tutorial/claude-cowork-dispatch), [buildtolaunch](https://buildtolaunch.substack.com/p/claude-cowork-scheduled-tasks-vs-routines-vs-loop), [lowcode.agency](https://www.lowcode.agency/blog/claude-dispatch-explained)). **Verified live on 2026-11-05** (audit §7): Dispatch from the iPhone and a local Desktop scheduled task both called the local MCP server.
 - **Implication:** a Desktop scheduled task can let **Claude itself** curate "Descobertas da semana" every Monday at no extra cost. That meets the owner's request that the AI create it.
 
 ## 3. Alternatives that cost nothing
@@ -82,4 +82,4 @@ Under guide §3.2 ("if the account risk is medium or high, stop and present the 
 | Notifications / dead man's switch | Free third-party services (ntfy.sh with a random topic, healthchecks.io). Messages never contain tokens. |
 | Persistence | SQLite through SQLAlchemy 2.0 (Core) + Alembic migrations |
 | Typing / lint | mypy (strict) + ruff on **all** modules, legacy code refactored |
-| Weekly discoveries | Curated by Claude itself through a Claude Desktop scheduled task on the Mac [VERIFY in §3.3] |
+| Weekly discoveries | Curated by Claude itself through a Claude Desktop scheduled task on the Mac (verified possible, audit §7) |
