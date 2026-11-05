@@ -121,7 +121,7 @@ ESTIMATES = [
 
 async def _setup(fake_apple, tmp_path):
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds))
     original = [e["id"] for e in ESTIMATES]
     return server, original
 

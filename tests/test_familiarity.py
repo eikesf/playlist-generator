@@ -46,7 +46,7 @@ def test_mix_check_suggests_swaps():
 
 def _server(fake_apple, tmp_path):
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    return build_server(lambda: build_app(creds), export_dir=tmp_path)
+    return build_server(lambda: build_app(creds))
 
 
 async def test_plan_playlist_includes_familiarity_mix(fake_apple, tmp_path):

@@ -76,4 +76,10 @@ async def run_login(
         creds.storefront = account_storefront
     path = store.save(creds)
     out(f"OK. Signed in (storefront '{creds.storefront}'). Credentials saved to {path}")
+    from ..operations import PENDING_KEY
+
+    pending = app.state.get(PENDING_KEY, []) or []
+    if pending:
+        names = ", ".join(f"'{p['name']}'" for p in pending)
+        out(f"{len(pending)} playlist(s) waiting to be created: {names}. Run: apple-music-mcp finish-pending")
     return 0

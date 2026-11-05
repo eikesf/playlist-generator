@@ -50,7 +50,7 @@ async def test_getsongbpm_first_when_key_configured(fake_apple):
 async def test_measured_bpm_replaces_estimates_in_order_tracks(fake_apple, tmp_path):
     fake_apple.deezer_bpm = {"1001": 66.0, "4001": 121.0}  # 66 = half time of 132
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
-    server = build_server(lambda: build_app(creds), export_dir=tmp_path)
+    server = build_server(lambda: build_app(creds))
     tracks = [
         {"id": "4001", "artist": "Stephan Bodzin", "title": "Singularity", "bpm": 118, "energy": 3},
         {"id": "1001", "artist": "Charlotte de Witte", "title": "Doppler", "bpm": 130, "energy": 9},

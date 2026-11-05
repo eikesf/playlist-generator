@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from mcp.server.mcpserver import MCPServer
 
 from . import __version__
@@ -21,15 +19,11 @@ Edits are applied in the user's library directly.
 Never invent catalog ids. On an AUTH error, tell the user to run `apple-music-mcp login` on their Mac.
 """
 
-DEFAULT_EXPORT_DIR = Path.home() / "Music" / "Playlist Curator"
 
-
-def build_server(
-    container_factory: ContainerFactory | None = None, export_dir: Path | None = None
-) -> MCPServer:
+def build_server(container_factory: ContainerFactory | None = None) -> MCPServer:
     mcp = MCPServer("apple-music", instructions=INSTRUCTIONS, version=__version__)
     provider = ContainerProvider(container_factory) if container_factory else ContainerProvider()
-    register_all(mcp, provider, export_dir or DEFAULT_EXPORT_DIR)
+    register_all(mcp, provider)
     return mcp
 
 

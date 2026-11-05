@@ -54,7 +54,7 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
 - **Edits existing playlists without breaking the vibe.** New tracks are **inserted exactly where they fit**: the existing order stays untouched and each new track goes into the slot that best matches the energy curve, BPM flow and artist spacing. Removing a track keeps everything else in order. You can also reorder, rename or fully re-sequence on request. Edits are verified by reading the playlist back.
 - **Refreshes without losing anything.** A weekly refresh (on request or scheduled on the Mac) fills a separate **"<name> · Descobertas"** playlist with new tracks. Tracks you love or play a lot there are suggested for promotion into the main playlist, at the right position. It suggests rotating out the least-played tracks only when your Mac's play counts can really tell them apart, and it flags tracks you disliked. **Nothing leaves the main playlist unless you confirm it**, and everything that leaves is first copied to **"<name> · Arquivo"**.
-- **Has fallbacks.** If the catalog API is unavailable, search falls back to the public iTunes Search API. If you're logged out, it can export a `.txt` file for Tune My Music.
+- **Everything happens inside Apple Music.** There are no export files and no third-party importers. If the catalog API is unavailable, search falls back to Apple's own public iTunes Search API. If your login expired, the playlist is kept as **pending** (same tracks and order) and created with one command after `apple-music-mcp login`.
 - **Diagnoses itself.** `apple-music-mcp doctor --write` tests the whole chain live: token, search, account, create, reorder, delete.
 
 ## How it works
@@ -175,9 +175,9 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `list_playlists` / `get_playlist_tracks` | Reads your library |
 | `plan_playlist_refresh` | Read-only refresh plan: least-played (when identifiable) and disliked candidates, discoveries added to "· Descobertas", promotion candidates |
 | `apply_playlist_refresh` | Applies only what you confirmed: archive then remove, promote into the main playlist at the best position |
-| `export_playlist_text` | Offline fallback: `.txt` file for Tune My Music |
+| `finish_pending_playlists` | Creates playlists that were kept as pending while the login was expired |
 
-CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | refresh --playlist NAME | schedule-refresh --playlist NAME`.
+CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | refresh --playlist NAME | schedule-refresh --playlist NAME`.
 
 **Weekly refresh on the Mac (optional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` writes a launchd agent (Monday 10:07 by default) and prints the `launchctl load` command. It only runs the read-only plan: it fills "· Descobertas" and shows a notification. Play counts come from the Music app via AppleScript, and macOS asks once for permission (System Settings → Privacy & Security → Automation).
 
@@ -235,6 +235,10 @@ tests/                        160+ tests, including a stateful fake Apple API
 - **Liskov / interface segregation**: anything with `search_songs` is a `SongSearcher` (catalog, iTunes, fakes).
 - **Dependency inversion**: domain code receives its collaborators. Only `container.py` knows how to build them, so tests swap in fakes.
 - **DRY**: one retry policy, one error mapper for every tool, one normalization module, one private-file writer.
+
+## Other streaming services (roadmap)
+
+Today the app is **Apple Music only**, by design. Everything service-specific lives in `src/apple_music_mcp/apple/`: transport, tokens, catalog, library and taste. The curation engine (purpose profiles, planning, familiarity mix, sequencing, insertion, refresh rules) only talks to those services through small interfaces (`ports.py`). Supporting another service later, such as Spotify or Deezer, means writing a sibling provider package that implements the same catalog, library and taste operations. The curation logic and the skill stay the same.
 
 ## Key decisions
 
@@ -323,6 +327,7 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #28 | #24 | Measured BPM from GetSongBPM / Deezer with estimate fallback |
 | #29 | #25 | Weekly refresh: staging playlist, archive-before-remove, promote what you like |
 | #31 | #30 | Familiarity mix: separate % of known songs and known artists |
+| #33 | #32 | Apple Music only: no export/Tune My Music fallback; pending playlists after expired login |
 
 ## Guia rápido (pt-BR)
 

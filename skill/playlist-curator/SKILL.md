@@ -5,9 +5,9 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 # Playlist Curator (Apple Music)
 
-Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
+Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, and that is the only way playlists are made: never Spotify, Tune My Music, text files or any other importer. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `finish_pending_playlists`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -91,9 +91,11 @@ Call `order_tracks` with the purpose and the tracks. It first looks up **measure
    - Why the name was chosen, plus two alternative names and two descriptions ready to paste (one long, one short). He renames it in the Music app if he prefers an alternative.
    - Honest notes: artists that ended with too few tracks and why (not in the catalog, region-locked, only remixes, etc.), and tracks that were dropped.
 
-## 7. Fallback (library unreachable)
+## 7. Login expired (everything stays inside Apple Music)
 
-If `create_playlist` fails with `AUTH` and he cannot log in right now, call `export_playlist_text` with the ordered lines (`Artist - Title`). Give him the file path and the import steps: tunemymusic.com, source "Free text" or "Upload file", destination Apple Music, then check the "Missing" report.
+There is **no export file and no third-party importer** (no Tune My Music). Playlists are only ever created by the `apple-music` tools, directly in his library.
+
+If `create_playlist` fails with `AUTH`, the playlist was saved as **pending**: same verified tracks, same order, same name and description, so nothing is lost. Tell him to run `apple-music-mcp login` in the Mac Terminal. When he confirms, call `finish_pending_playlists` and give him the link. To drop a pending idea, pass its name in `discard`.
 
 ## 8. Edit an existing playlist (keep it flowing)
 
