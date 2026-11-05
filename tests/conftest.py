@@ -5,8 +5,16 @@ import json
 import time
 
 import pytest
+from mcp.types import CallToolResult, TextContent
 
 from apple_music_mcp import config
+
+
+def result_text(result: CallToolResult) -> str:
+    """Text of a tool result's first content block (errors come back as text)."""
+    block = result.content[0]
+    assert isinstance(block, TextContent)
+    return block.text
 
 
 def make_jwt(exp: float | None = None) -> str:

@@ -21,6 +21,7 @@ Personal MCP server that lets Claude create and maintain Apple Music playlists. 
 uv venv && uv pip install -e ".[dev]"   # dev environment
 uv run pytest -q                         # tests (offline, fake Apple API)
 uv run ruff check . && uv run ruff format --check .
+uv run mypy                              # type check (src, scripts, tests; config in pyproject.toml)
 uv tool install --force --reinstall --no-cache .  # install the CLI (without --reinstall --no-cache uv reuses the cached 0.1.0 wheel)
 uv run python scripts/diagnose_token.py  # bounded, masked live diagnostic of developer-token discovery
 apple-music-mcp status                   # masked credentials

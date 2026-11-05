@@ -73,10 +73,10 @@ def report(label: str, text: str) -> None:
     if chosen:
         print(f"  scraper would pick: {describe_jwt(chosen)}")
     for name, rx in RUNTIME_HINTS.items():
-        hits = rx.findall(text)
-        if hits:
+        m = rx.search(text)
+        if m:
+            hits = rx.findall(text)
             # Show short context snippets with any JWT-looking run redacted.
-            m = rx.search(text)
             start = max(0, m.start() - 60)
             snippet = JWT_RE.sub(lambda t: mask(t.group(0)), text[start : m.end() + 60])
             snippet = re.sub(r"[A-Za-z0-9_-]{40,}", lambda t: mask(t.group(0)), snippet)

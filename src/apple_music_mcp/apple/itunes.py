@@ -28,7 +28,7 @@ class ITunesSearch:
         self._sleep = sleep
 
     async def search_songs(self, term: str, limit: int = 10) -> list[Song]:
-        params = {
+        params: dict[str, str | int] = {
             "term": term,
             "entity": "song",
             "media": "music",
