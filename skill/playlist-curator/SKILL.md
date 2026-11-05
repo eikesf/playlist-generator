@@ -97,7 +97,10 @@ Every edit goes straight to his Apple Music library. Never ask him to drag track
    - **Exact order he dictates**: `reorder_playlist` (same tracks) or `sync_playlist` (exact final list).
    - **Name or description**: `rename_playlist`.
    - `add_tracks_to_playlist` only appends at the end. Use it only if he explicitly wants the tracks at the end.
-5. Read the result: `verified_order: true` means the library now matches. If `strategy` is `rebuild`, Apple refused in-place editing, so the playlist was recreated with the same name, same order and a new link. Tell him and give the new link. Pass on any `warnings` (for example an old copy to delete in the Music app, or tracks without estimates).
+5. Read the result:
+   - `status: applied` with `verified_order: true` means the library now matches. Report what changed.
+   - `status: needs_decision` means Apple refused editing this playlist in place. Nothing was removed or reordered, and any new tracks were only appended at the end. **Never recreate on your own.** Show him `decision.changes`, the `manual_steps` (move X right after Y, remove Z) and the `recommendation`, then ask with AskUserQuestion: "Recriar a playlist (mesmo nome e ordem, link novo; a antiga é apagada)" or "Ajusto manualmente com os passos". For few changes (`size: small`), recommend manual. For many (`size: large`), recommend recreating. Only if he chooses to recreate, call the same tool again with `allow_rebuild: true` and give him the new link.
+   - Pass on any `warnings` (for example tracks without estimates).
 
 ## 9. Follow-up
 

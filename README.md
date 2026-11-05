@@ -260,7 +260,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 - **Not verified live by the author's build environment.** It was developed in a sandbox without access to Apple's domains, so run `doctor --write` once after setup. The request shapes come from open-source clients and are encoded in the fake.
 - **BPM and energy are estimates.** Neither Apple nor Spotify (for new apps, since 2024) provides audio features, so the sequencing quality depends on Claude's estimates.
 - **The user token expires** now and then. Run `apple-music-mcp login` again when tools report `AUTH`.
-- **In-place editing depends on your account accepting track removal.** If it doesn't, edits fall back to recreating the playlist with the same name, which changes the link. `doctor --write` tells you which one applies.
+- **In-place editing depends on your account accepting track removal.** If it doesn't, nothing is changed automatically. Claude shows the exact manual steps and asks whether to recreate the playlist (same name and order, new link), and recommends recreating only for large changes. `doctor --write` tells you which case applies.
 - **Mac only for creation.** The server runs locally, so create playlists from Claude Desktop on the Mac. They sync to the iPhone via iCloud Music Library (Settings → Music → Sync Library).
 - **Region-locked tracks** are reported as not found for your storefront.
 
@@ -272,7 +272,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 | `Could not extract the Apple Music developer token` | Apple changed the web player. Copy the `Authorization: Bearer …` value from any `amp-api.music.apple.com` request in the browser devtools Network tab, set it as `APPLE_MUSIC_DEVELOPER_TOKEN` in the server's `env` in the Claude Desktop config, and open an issue |
 | Tools don't appear in Claude Desktop | Run `apple-music-mcp install-claude` again, quit with ⌘Q and reopen. Logs are in `~/Library/Logs/Claude/mcp*.log` |
 | Playlist not on the iPhone | Wait a few minutes and check that Sync Library is on |
-| An edit reports `strategy: rebuild` | Your account refused in-place edits, so the playlist was recreated (new link). Delete the "(old)" copy if one is mentioned |
+| An edit reports `needs_decision` | Your account refused in-place edits. Nothing was removed or moved. Claude shows the manual steps and asks whether to recreate the playlist (same name and order, new link) or let you adjust by hand |
 | A track is "not found" but exists | Check your storefront (`apple-music-mcp status`). Try `search_songs` with a shorter query |
 
 ## Development

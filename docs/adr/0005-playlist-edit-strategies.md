@@ -12,6 +12,9 @@ Playlists evolve. Tracks get added, some get dropped, and the set must be re-seq
 
 The editor reads the playlist back to report `verified_order`. It remembers the working strategy in `~/.config/apple-music-mcp/state.json`. `LibraryService.remove_entry` tries both removal shapes and remembers the accepted one. The MCP tools on top are `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist` (order engine + sync) and `rename_playlist`.
 
+### Recreating requires confirmation (owner decision)
+The rebuild strategy never runs on its own. Every edit tool defaults to `allow_rebuild=false`. When Apple refuses an in-place edit, the editor makes no destructive change. It only appends new tracks so they are not lost, and returns `status: needs_decision` with the number of changes, a size classification (small ≤ 5 changes, otherwise large), minimal manual steps and a recommendation: manual for small changes, recreate for large ones. The manual steps come from a longest increasing subsequence, so only the tracks that really need moving are listed. The skill asks the user. Only an explicit "recreate" re-runs the tool with `allow_rebuild=true`, which deletes the old playlist after the new one is verified.
+
 ### Adding tracks: insert, don't reshuffle
 Adding tracks must not disturb a playlist the user already likes. `Sequencer.insert` keeps the existing order fixed. It places new tracks one at a time, always taking the (track, slot) pair with the smallest cost increase on the same cost function as `order_tracks`: energy curve, BPM steps, energy jumps, artist spacing and pinned acts. The result is synced in place. Only the tail after the first insertion point is rewritten, and an insertion near the end touches only a few tracks. The tool is `insert_tracks_into_playlist`. `resequence_playlist` (full reshuffle) is reserved for explicit requests.
 

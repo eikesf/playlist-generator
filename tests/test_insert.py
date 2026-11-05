@@ -176,27 +176,34 @@ async def test_insert_tool_without_estimates_still_preserves_order(fake_apple, t
     assert any("no bpm/energy estimate" in w for w in data["warnings"])
 
 
-async def test_insert_tool_falls_back_to_rebuild_keeping_order(fake_apple, tmp_path):
+async def test_insert_tool_asks_before_rebuilding_then_rebuilds_on_confirmation(fake_apple, tmp_path):
     fake_apple.remove_variants = set()  # account refuses in-place removal
     server, original = await _setup(fake_apple, tmp_path)
+    args = {
+        "purpose": "dj_set",
+        "current_estimates": ESTIMATES,
+        "new_tracks": [{"id": "4002", "artist": "Stephan Bodzin", "bpm": 121, "energy": 2.5}],
+    }
     async with Client(server) as c:
         pid = (
             await c.call_tool("create_playlist", {"name": "Set", "song_ids": original})
         ).structured_content["playlist"]["id"]
+        first = (
+            await c.call_tool("insert_tracks_into_playlist", {"playlist_id": pid, **args})
+        ).structured_content
+        assert first["edit"]["status"] == "needs_decision"
+        assert len(fake_apple.playlists) == 1  # not recreated without asking
+        assert first["edit"]["decision"]["manual_steps"][0].startswith("Mover 'Stephan Bodzin - Strand'")
+        # user says "pode recriar"
         res = await c.call_tool(
-            "insert_tracks_into_playlist",
-            {
-                "playlist_id": pid,
-                "purpose": "dj_set",
-                "current_estimates": ESTIMATES,
-                "new_tracks": [{"id": "4002", "artist": "Stephan Bodzin", "bpm": 121, "energy": 2.5}],
-            },
+            "insert_tracks_into_playlist", {"playlist_id": pid, "allow_rebuild": True, **args}
         )
     edit = res.structured_content["edit"]
     assert edit["strategy"] == "rebuild" and edit["verified_order"]
     new_pid = edit["playlist"]["id"]
-    assert _is_subsequence(original, fake_apple.playlists[new_pid]["tracks"])
+    assert pid not in fake_apple.playlists  # old one deleted after confirmation
     assert fake_apple.playlists[new_pid]["tracks"][0] == "4002"
+    assert _is_subsequence(original, fake_apple.playlists[new_pid]["tracks"])
 
 
 async def test_remove_keeps_the_order_of_the_rest(fake_apple, tmp_path):

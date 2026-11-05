@@ -61,9 +61,12 @@ class EditResult:
     added: int = 0
     verified: bool = False
     warnings: list[str] = field(default_factory=list)
+    status: str = "applied"  # applied | unchanged | needs_decision
+    decision: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
+            "status": self.status,
             "playlist": self.playlist.to_dict(),
             "strategy": self.strategy,
             "changed": self.changed,
@@ -72,6 +75,9 @@ class EditResult:
             "verified_order": self.verified,
             "warnings": self.warnings,
         }
+        if self.decision is not None:
+            data["decision"] = self.decision
+        return data
 
 
 def dedupe(refs: list[TrackRef]) -> list[TrackRef]:
@@ -200,6 +206,79 @@ async def _quietly(coro: Any) -> None:
         await coro
 
 
+SMALL_CHANGE_LIMIT = 5
+
+
+def _label(entry: PlaylistEntry) -> str:
+    return f"{entry.artist} - {entry.name}".strip(" -") or entry.library_id
+
+
+def _longest_increasing(seq: list[int]) -> set[int]:
+    """Indices (into ``seq``) of one longest strictly increasing subsequence (patience sorting)."""
+    import bisect
+
+    tails: list[int] = []
+    tails_idx: list[int] = []
+    prev = [-1] * len(seq)
+    for i, value in enumerate(seq):
+        k = bisect.bisect_left(tails, value)
+        if k == len(tails):
+            tails.append(value)
+            tails_idx.append(i)
+        else:
+            tails[k] = value
+            tails_idx[k] = i
+        prev[i] = tails_idx[k - 1] if k else -1
+    keep: set[int] = set()
+    i = tails_idx[-1] if tails_idx else -1
+    while i != -1:
+        keep.add(i)
+        i = prev[i]
+    return keep
+
+
+def manual_plan(current: list[PlaylistEntry], desired: list[TrackRef]) -> dict[str, Any]:
+    """Minimal human steps to turn ``current`` into ``desired`` in the Music app.
+
+    Tracks on a longest increasing subsequence stay put; every other kept track is moved right
+    after its predecessor in the desired order. Tracks not in ``desired`` are removed.
+    """
+    by_ref = {TrackRef.of(e): e for e in current}
+    position = {TrackRef.of(e): i for i, e in enumerate(current)}
+    wanted = set(desired)
+    steps: list[str] = []
+    removals = [e for e in current if TrackRef.of(e) not in wanted]
+    steps += [f"Remover '{_label(e)}'" for e in removals]
+    kept = [r for r in desired if r in position]
+    stay = _longest_increasing([position[r] for r in kept])
+    moves = 0
+    for k, ref in enumerate(kept):
+        if k in stay:
+            continue
+        moves += 1
+        target = by_ref[ref]
+        if k == 0:
+            steps.append(f"Mover '{_label(target)}' para o início")
+        else:
+            steps.append(f"Mover '{_label(target)}' para logo depois de '{_label(by_ref[kept[k - 1]])}'")
+    missing = [r.id for r in desired if r not in position]
+    changes = len(removals) + moves + len(missing)
+    size = "small" if changes <= SMALL_CHANGE_LIMIT else "large"
+    return {
+        "changes": changes,
+        "size": size,
+        "removals": len(removals),
+        "moves": moves,
+        "manual_steps": steps,
+        "not_in_playlist": missing,
+        "recommendation": (
+            "manual: few changes, do them in the Music app with the steps above"
+            if size == "small"
+            else "rebuild: many changes; recreate the playlist (same name and order, new link)"
+        ),
+    }
+
+
 class PlaylistEditor:
     def __init__(
         self,
@@ -211,20 +290,26 @@ class PlaylistEditor:
         self.state = state
         self.strategies = strategies or [InPlaceStrategy(), RebuildStrategy()]
 
-    async def sync(self, playlist_id: str, desired_ids: list[str], allow_rebuild: bool = True) -> EditResult:
-        """Make the playlist contain exactly ``desired_ids`` in that order."""
+    async def sync(self, playlist_id: str, desired_ids: list[str], allow_rebuild: bool = False) -> EditResult:
+        """Make the playlist contain exactly ``desired_ids`` in that order.
+
+        In-place editing is tried first. Recreating the playlist (``RebuildStrategy``) only happens
+        with ``allow_rebuild=True``, i.e. after the user confirmed it. Without confirmation, a refused
+        in-place edit returns ``status="needs_decision"`` with the manual steps and a recommendation;
+        new tracks are still appended at the end (that never destroys anything).
+        """
         desired = dedupe([TrackRef.parse(i) for i in desired_ids if str(i).strip()])
         playlist = await self.library.get_playlist(playlist_id)
         current = await self.library.playlist_tracks(playlist_id)
         if [TrackRef.of(e) for e in current] == desired:
-            return EditResult(playlist, "none", changed=False, verified=True)
+            return EditResult(playlist, "none", changed=False, verified=True, status="unchanged")
 
-        last_error: Exception | None = None
-        for strategy in self._ordered(allow_rebuild):
+        for strategy in self.strategies:
+            if strategy.name == RebuildStrategy.name and not allow_rebuild:
+                return await self._needs_decision(playlist, current, desired)
             try:
                 result = await strategy.apply(self.library, playlist, current, desired)
-            except StrategyUnsupported as exc:
-                last_error = exc
+            except StrategyUnsupported:
                 continue
             self.state.set(STATE_KEY, strategy.name)
             final = [TrackRef.of(e) for e in await self.library.playlist_tracks(result.playlist.id)]
@@ -234,18 +319,30 @@ class PlaylistEditor:
                     "Read-back order differs from the requested order; Apple may still be syncing."
                 )
             return result
-        raise AppleMusicError(
-            "This account does not accept in-place playlist edits"
-            + ("" if allow_rebuild else " and rebuild was not allowed")
-            + f": {last_error}"
-        )
+        raise AppleMusicError("No playlist edit strategy could be applied on this account.")
 
-    def _ordered(self, allow_rebuild: bool) -> list[EditStrategy]:
-        strategies = [s for s in self.strategies if allow_rebuild or s.name != RebuildStrategy.name]
-        preferred = self.state.get(STATE_KEY)
-        if preferred == RebuildStrategy.name and allow_rebuild:
-            strategies.sort(key=lambda s: s.name != RebuildStrategy.name)
-        return strategies
+    async def _needs_decision(
+        self, playlist: Playlist, current: list[PlaylistEntry], desired: list[TrackRef]
+    ) -> EditResult:
+        self.state.set(STATE_KEY, "in_place_refused")
+        present = {TrackRef.of(e) for e in current}
+        new = [r for r in desired if r not in present]
+        added = await add_refs(self.library, playlist.id, new) if new else 0
+        if added:
+            current = await self.library.playlist_tracks(playlist.id)
+        decision = manual_plan(current, desired)
+        warnings = ["Apple refused editing this playlist in place. Nothing was removed or reordered."]
+        if added:
+            warnings.append(f"{added} new track(s) were appended at the end so you can move them by hand.")
+        return EditResult(
+            playlist,
+            "none",
+            changed=bool(added),
+            added=added,
+            status="needs_decision",
+            decision=decision,
+            warnings=warnings,
+        )
 
     async def current_ids(self, playlist_id: str) -> list[str]:
         return [TrackRef.of(e).id for e in await self.library.playlist_tracks(playlist_id)]
