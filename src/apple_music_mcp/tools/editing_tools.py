@@ -17,12 +17,15 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     @mcp.tool()
     @tool_errors
     async def reorder_playlist(
-        playlist_id: str, song_ids_in_order: list[str], allow_rebuild: bool = True
+        playlist_id: str, song_ids_in_order: list[str], allow_rebuild: bool = False
     ) -> dict[str, Any]:
         """Reorder an existing library playlist to exactly `song_ids_in_order` (ids as returned by
         `get_playlist_tracks` or `order_tracks`). The list must contain the same tracks as the playlist.
-        Changes show up in the Music app on Mac/iPhone. If the account refuses in-place edits and
-        `allow_rebuild` is true, the playlist is recreated with the same name (its link changes)."""
+        Changes show up in the Music app on Mac/iPhone.
+        If the result has status 'needs_decision', Apple refused the in-place edit: show the user
+        `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
+        allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
+        without that confirmation."""
         editor = provider.get().editor
         current = await editor.current_ids(playlist_id)
         if sorted(set(current)) != sorted(set(song_ids_in_order)):
@@ -37,18 +40,26 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     @mcp.tool()
     @tool_errors
     async def sync_playlist(
-        playlist_id: str, song_ids_in_order: list[str], allow_rebuild: bool = True
+        playlist_id: str, song_ids_in_order: list[str], allow_rebuild: bool = False
     ) -> dict[str, Any]:
         """Make a library playlist contain exactly `song_ids_in_order`, in that order: adds new tracks,
-        removes tracks not in the list and reorders the rest, in one call."""
+        removes tracks not in the list and reorders the rest, in one call.
+        If the result has status 'needs_decision', Apple refused the in-place edit: show the user
+        `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
+        allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
+        without that confirmation."""
         return (await provider.get().editor.sync(playlist_id, song_ids_in_order, allow_rebuild)).to_dict()
 
     @mcp.tool()
     @tool_errors
     async def remove_tracks_from_playlist(
-        playlist_id: str, song_ids: list[str], allow_rebuild: bool = True
+        playlist_id: str, song_ids: list[str], allow_rebuild: bool = False
     ) -> dict[str, Any]:
-        """Remove tracks (ids from `get_playlist_tracks`) from a playlist, keeping the rest in order."""
+        """Remove tracks (ids from `get_playlist_tracks`) from a playlist, keeping the rest in order.
+        If the result has status 'needs_decision', Apple refused the in-place edit: show the user
+        `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
+        allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
+        without that confirmation."""
         editor = provider.get().editor
         drop = {str(i) for i in song_ids}
         desired = [i for i in await editor.current_ids(playlist_id) if i not in drop]
@@ -57,12 +68,16 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     @mcp.tool()
     @tool_errors
     async def resequence_playlist(
-        playlist_id: str, purpose: str, tracks: list[TrackInput], allow_rebuild: bool = True
+        playlist_id: str, purpose: str, tracks: list[TrackInput], allow_rebuild: bool = False
     ) -> dict[str, Any]:
         """Fully re-sequence an existing playlist (reshuffles everything): pass the full final track set
         with estimated bpm/energy; it is ordered from scratch along the purpose's energy curve and the
         playlist is synced. Only use when the user asks to reorganize the whole playlist. To ADD tracks
-        while keeping the current order, use `insert_tracks_into_playlist` instead."""
+        while keeping the current order, use `insert_tracks_into_playlist` instead.
+        If the result has status 'needs_decision', Apple refused the in-place edit: show the user
+        `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
+        allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
+        without that confirmation."""
         app = provider.get()
         features = [TrackFeatures.from_dict(t.model_dump()) for t in tracks]
         await fill_durations(app, features)
@@ -77,20 +92,29 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         purpose: str,
         new_tracks: list[TrackInput],
         current_estimates: list[TrackInput] | None = None,
-        allow_rebuild: bool = True,
+        allow_rebuild: bool = False,
     ) -> dict[str, Any]:
         """Add tracks to an existing playlist, each one at the exact position where it fits the vibe,
         WITHOUT changing the order of the tracks already there.
 
         `new_tracks`: verified catalog ids with estimated bpm/energy. `current_estimates`: bpm/energy
         estimates for the tracks already in the playlist (ids from `get_playlist_tracks`); the better
-        these are, the better the placement. Returns where each track went (position, act, neighbours)."""
+        these are, the better the placement. Returns where each track went (position, act, neighbours).
+        If the result has status 'needs_decision', Apple refused the in-place edit: show the user
+        `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
+        allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
+        without that confirmation."""
         app = provider.get()
         entries = await app.library.playlist_tracks(playlist_id)
         estimates = {t.id: t for t in current_estimates or []}
+        new_ids = {t.id for t in new_tracks}
         base: list[TrackFeatures] = []
+        already = []
         for entry in entries:
             ref = entry.reference[0]
+            if ref in new_ids:  # e.g. appended earlier: take it out and place it properly
+                already.append(ref)
+                continue
             given = estimates.get(ref) or estimates.get(entry.library_id)
             f = (
                 TrackFeatures.from_dict(given.model_dump())
@@ -109,6 +133,8 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             plan["warnings"].append(
                 f"{unestimated} existing track(s) had no bpm/energy estimate; placement relied on the others."
             )
+        if already:
+            plan["warnings"].append(f"Already in the playlist, moved to their best position: {already}")
         if not plan["inserted"]:
             return {"changed": False, "inserted": [], "warnings": plan["warnings"]}
         result = await app.editor.sync(playlist_id, plan["song_ids_in_order"], allow_rebuild)
