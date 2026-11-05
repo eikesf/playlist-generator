@@ -191,3 +191,35 @@ async def test_doctor_covers_unverified_endpoints(fake_apple):
         assert f"[ok]   {name}" in text, name
     assert "[warn] Music app stats via AppleScript" in text
     assert "removal request shape: query" in text
+
+
+async def test_doctor_reads_stats_from_a_playlist_the_music_app_has(fake_apple):
+    from apple_music_mcp.local_music import SEP, MusicAppReader
+
+    save_credentials(Credentials(media_user_token=fake_apple.user_token, storefront="br"))
+    async with build_app(Credentials(media_user_token=fake_apple.user_token)) as a:
+        await a.library.create_playlist("Brown Noise")  # listed by the API, absent from the Music app
+        await a.library.create_playlist("Workout")
+
+    line = SEP.join(["Duality", "Slipknot", "12", "0", "true", "false", ""])
+
+    async def runner(args):
+        if args[0] == "names":
+            return 0, "Music\nWorkout\n", ""
+        if args[1] != "Workout":
+            return 1, "", "Can’t get user playlist 1. (-1728)"
+        return 0, line + "\n", ""
+
+    def build(creds):
+        a = build_app(creds)
+        a.music_app = MusicAppReader(runner=runner, system="Darwin")
+        return a
+
+    lines: list[str] = []
+    assert await run_doctor(False, build=build, out=lines.append) == 0
+    text = "\n".join(lines)
+    assert (
+        "[ok]   Music app stats via AppleScript (macOS): 'Workout': 1 tracks, 1 with plays, 1 favorites"
+        in text
+    )
+    assert "1 playlist(s) not in the Music app skipped" in text
