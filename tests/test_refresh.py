@@ -171,7 +171,7 @@ async def test_refresh_tools_via_mcp(fake_apple, tmp_path):
         a.music_app = MusicAppReader(system="Linux")
         return a
 
-    server = build_server(make, export_dir=tmp_path)
+    server = build_server(make)
     async with Client(server) as c:
         pid = (await c.call_tool("create_playlist", {"name": "Set", "song_ids": MAIN})).structured_content[
             "playlist"

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from mcp import Client
 
@@ -19,7 +17,7 @@ EXPECTED_TOOLS = {
     "add_tracks_to_playlist",
     "list_playlists",
     "get_playlist_tracks",
-    "export_playlist_text",
+    "finish_pending_playlists",
     "list_playlist_profiles",
     "plan_playlist",
     "order_tracks",
@@ -35,6 +33,8 @@ EXPECTED_TOOLS = {
     "lookup_bpm",
     "plan_playlist_refresh",
     "apply_playlist_refresh",
+    "known_tracks",
+    "deep_cuts",
 }
 
 
@@ -43,7 +43,7 @@ def server_factory(fake_apple, tmp_path):
     def make(user_token: str | None = "default"):
         token = fake_apple.user_token if user_token == "default" else user_token
         creds = Credentials(media_user_token=token, storefront="br")
-        return build_server(lambda: build_app(creds), export_dir=tmp_path / "exports")
+        return build_server(lambda: build_app(creds))
 
     return make
 
@@ -123,16 +123,6 @@ async def test_create_playlist_rejects_empty(server_factory):
         server_factory(), "create_playlist", {"name": "X", "tracks": ["Nobody - Nothing At All Zzz"]}
     )
     assert r.is_error and "nothing matched" in r.content[0].text
-
-
-async def test_export_playlist_text(server_factory, tmp_path):
-    data = (
-        await call(
-            server_factory(), "export_playlist_text", {"name": "Set / 01", "tracks": ["A - B", " C - D "]}
-        )
-    ).structured_content
-    assert data["path"].endswith("Set  01.txt") or data["path"].endswith("Set 01.txt")
-    assert Path(data["path"]).read_text(encoding="utf-8") == "A - B\nC - D\n"
 
 
 async def test_plan_and_order_tools(server_factory):

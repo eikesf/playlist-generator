@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from ..operations import PendingPlaylists, create_with_tracks
 from ..resolver import resolve_tracks
 from .base import ContainerProvider, tool_errors
 
@@ -28,6 +29,8 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
 
         Pass `song_ids` (catalog ids from `resolve_tracks`) or `tracks` (free text lines, resolved
         here). With `dry_run=true` nothing is created; you get what would be added.
+        If the Apple Music login expired, the playlist is saved as pending (nothing is lost): ask the
+        user to run `apple-music-mcp login`, then call `finish_pending_playlists`.
         """
         if not name.strip():
             raise ToolError("name is required")
@@ -50,14 +53,8 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
                 "song_ids": ids,
                 "resolution": report_dict,
             }
-        playlist = await app.library.create_playlist(name.strip(), description.strip() or None)
-        added = await app.library.add_tracks(playlist.id, ids)
-        result: dict[str, Any] = {
-            "created": True,
-            "playlist": playlist.to_dict(),
-            "tracks_added": added,
-            "note": SYNC_NOTE,
-        }
+        result: dict[str, Any] = await create_with_tracks(app, name.strip(), description.strip() or None, ids)
+        result["note"] = SYNC_NOTE
         if report_dict:
             result["resolution_summary"] = report_dict["summary"]
             result["not_added"] = [t for t in report_dict["tracks"] if t["status"] not in accepted]
@@ -83,3 +80,15 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         """List the tracks of a library playlist in order (to verify a creation or plan a follow-up)."""
         entries = await provider.get().library.playlist_tracks(playlist_id)
         return {"playlist_id": playlist_id, "count": len(entries), "tracks": [e.to_dict() for e in entries]}
+
+    @mcp.tool()
+    @tool_errors
+    async def finish_pending_playlists(discard: list[str] | None = None) -> dict[str, Any]:
+        """Create the playlists saved as pending because the login had expired (exact same tracks and
+        order). Call after the user ran `apple-music-mcp login`. `discard`: names to drop instead."""
+        pending = PendingPlaylists(provider.get())
+        dropped = [n for n in discard or [] if pending.discard(n)]
+        if not pending.list():
+            return {"created": [], "discarded": dropped, "note": "No pending playlists."}
+        created = await pending.finish()
+        return {"created": created, "discarded": dropped, "note": SYNC_NOTE}

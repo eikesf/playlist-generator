@@ -5,9 +5,9 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 # Playlist Curator (Apple Music)
 
-Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
+Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, and that is the only way playlists are made: never Spotify, Tune My Music, text files or any other importer. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `finish_pending_playlists`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -18,48 +18,56 @@ Call `auth_status` once at the start.
 - Otherwise tell Eike to run `apple-music-mcp login` in the Mac Terminal (the token expires from time to time), and keep curating. At the end, use the fallback in step 7.
 - If the `apple-music` tools are missing entirely, the server is not connected. Point him to the README of github.com/eikesf/playlist-generator (`apple-music-mcp install-claude`).
 
-## 1. Understand the purpose (ask before searching)
+## 1. Understand the purpose and the familiarity mix (ask before searching)
 
-Ask up to 4 questions in one round (use AskUserQuestion when available). Skip the ones he already answered:
+**The goal: a playlist he is very likely to enjoy, built on his real taste, that still brings new songs and new artists.**
+
+Call `my_taste_profile` once (cached) before asking. Use his top artists and heavy rotation to suggest reference artists if he has none, and to recognize what he already listens to a lot.
+
+Ask in one round (use AskUserQuestion when available, max 4 questions per round; use a second round if needed). Skip what he already answered:
 - **Purpose / context**: study or deep focus, workout, running, party, DJ-style set (like his techno set), chill/daily, sleep, genre exploration. Ask what he will be doing while listening.
 - **Size**: total duration (1h, 2h, 5h) or number of tracks. Mandatory.
+- **% of songs he already knows** (`known_tracks_pct`). Options: "10% – quase tudo novo", "30% – equilíbrio (Recommended)", "50% – metade conhecida", "70% – confortável".
+- **% of artists he already knows** (`known_artists_pct`), asked **separately**. Explain in the question that knowing an artist does not mean knowing all their songs: tracks by known artists include unheard songs (deep cuts). This value includes the known songs, so it is ≥ the previous one. Options: "40% – muitos artistas novos", "60% – equilíbrio (Recommended)", "80% – poucos artistas novos", "100% – só artistas que já ouço".
 - **Energy curve** when the purpose allows a choice: journey/DJ set (opening, build, peak, cooldown), constant/hypnotic, or high intensity throughout.
-- **Known vs new ratio**: 40/60, 50/50, 20/80.
 - **Vocals**: ethereal/sparse, mostly instrumental, prominent.
 - Sub-genres to include or avoid.
-
-Call `my_taste_profile` once (cached). Use his top artists and heavy rotation to suggest reference artists if he has none, and to recognize what he already listens to a lot.
 
 Also ask for reference artists and one reference track that captures the vibe. If an artist name looks like a speech-to-text mangling, confirm the spelling (or check with `search_songs`) before going further.
 
 ## 2. Plan
 
-Call `plan_playlist` with the purpose (free text works: "set de techno", "treino", "estudo") and `duration_minutes` or `track_count`. The plan returns:
+Call `plan_playlist` with the purpose (free text works: "set de techno", "treino", "estudo"), `duration_minutes` or `track_count`, and his `known_tracks_pct` and `known_artists_pct`. The plan returns:
 - the acts with minutes, number of tracks, target energy (1–10) and target BPM per act,
-- vocals, max track length, transition rules (max BPM step, max energy step, spacing between tracks by the same artist) and genre guidance.
+- vocals, max track length, transition rules (max BPM step, max energy step, spacing between tracks by the same artist) and genre guidance,
+- `familiarity_mix.counts`: how many tracks go in each of the three buckets:
+  - `known_track`: songs he already knows (library or recently played),
+  - `known_artist_new_track`: new songs by artists he listens to (deep cuts),
+  - `new_artist`: artists he does not know yet.
 
-If the purpose is unclear, call `list_playlist_profiles` and pick the closest one. Say which one you picked and why in one line. Fill each act with tracks that match its intent.
+If the purpose is unclear, call `list_playlist_profiles` and pick the closest one. Say which one you picked and why in one line. Fill each act with tracks that match its intent, and spread the buckets across the acts. Known songs work well at the opening and in the peak, and discoveries fit the build and the groove.
 
 ## 3. Size and balance
 
 - No size given: the plan defaults to about 75 tracks. Never under 50 unless he asked for a short duration.
 - Each core artist he named gets 3 to 5 tracks so he can judge their style. One track per artist is not enough.
-- Discovery artists: 3+ tracks for the 4–5 most promising, 1–2 for the rest.
-- Respect the known/new ratio.
+- New artists: 2–3 tracks for the 4–5 most promising, 1–2 for the rest, so he can actually judge them.
+- Hit the bucket counts from `familiarity_mix`.
 - Draft about 15% more tracks than the plan needs. Some will not be in the catalog.
 
-## 4. Gather and verify (never from memory alone)
+## 4. Gather per bucket and verify (never from memory alone)
 
-1. **Known share**: for each core artist, call `artist_top_songs` (limit 10) to see what exists and what is popular.
-2. **New share**: call `discover_tracks` with the reference artists as `seed_artists`. It returns top songs of **similar artists from Apple's catalog** that he does **not** already know (not in his library or recently played) and has not disliked. Prefer these over discoveries from memory. Use `similar_artists` to explore one artist further.
-3. Draft the full list, one line per track (`Artist1, Artist2 - Title (Remix)`), grouped by the act you intend.
-4. Call `resolve_tracks` with the whole list (batches of up to 40 lines). Rules:
+1. **`known_track`**: `known_tracks` with his reference and top artists. These are songs he already knows, with loved ones first, and they are the safest picks for enjoyment. Choose the ones that fit the purpose and vibe.
+2. **`known_artist_new_track`**: `deep_cuts` with the artists he knows. These are popular songs by those artists that he has not heard yet. `artist_top_songs` helps explore one artist.
+3. **`new_artist`**: `discover_tracks` with the reference artists as `seed_artists`. It returns top songs of **similar artists from Apple's catalog** that he doesn't know and hasn't disliked. Prefer these over discoveries from memory. Use `similar_artists` to explore further. Pick new artists closest to his taste so the discoveries are likely to land.
+4. Draft the full list, one line per track (`Artist1, Artist2 - Title (Remix)`), grouped by the act you intend.
+5. Call `resolve_tracks` with the whole list (batches of up to 40 lines) **and** his `known_tracks_pct` / `known_artists_pct`. Rules:
    - Use only `matched` tracks. Review `low_confidence` ones (candidates are listed) and either pick a candidate with `search_songs` or drop it.
-   - `not_found`: replace it with another track by the same artist (check `artist_top_songs`) or drop it. Never invent ids.
+   - `not_found`: replace it with another track from the same bucket or drop it. Never invent ids.
    - **`disliked: true`: drop it.** He rated it "dislike".
    - Duplicates (radio edit vs original) are removed automatically. Keep the original or extended mix for DJ sets and the radio edit for workouts.
-5. **Check the real known/new ratio** in the summary (`known`, `new`, `known_ratio`). Each track has `familiarity` known/new, taken from his library and listening history. If the ratio is off from what he asked (e.g. 40/60), swap tracks using `discover_tracks` (more new) or `artist_top_songs` of his top artists (more known).
-6. Resolve replacements until the list is clean and the total duration is within ±5% of the plan.
+6. **Check the mix**: every track has `familiarity` (its bucket), and `summary.mix_check` compares the real counts with his targets. If it is not `within_tolerance`, follow its `suggestions` (e.g. "replace 2 'known_track' with 'new_artist'") using the bucket tools above, then resolve again.
+7. Repeat until the list is clean, the mix is within tolerance and the total duration is within ±5% of the plan.
 
 ## 5. Sequence
 
@@ -78,14 +86,16 @@ Call `order_tracks` with the purpose and the tracks. It first looks up **measure
 3. Optionally confirm with `get_playlist_tracks` that the count matches.
 4. Reply with:
    - The playlist link (`playlist.url`) and a note that it shows up on his iPhone within a few minutes (iCloud Music Library sync).
-   - Which purpose profile was used, in one line.
+   - Which purpose profile was used, in one line, and the **final familiarity mix**: e.g. "30% músicas que você conhece, 40% músicas novas de artistas que você curte, 30% artistas novos". Name the new artists so he knows who to explore.
    - Tracks grouped by act, with the duration per act (from `order_tracks`). On mobile or for long lists, show a summary per act and the highlights only.
    - Why the name was chosen, plus two alternative names and two descriptions ready to paste (one long, one short). He renames it in the Music app if he prefers an alternative.
    - Honest notes: artists that ended with too few tracks and why (not in the catalog, region-locked, only remixes, etc.), and tracks that were dropped.
 
-## 7. Fallback (library unreachable)
+## 7. Login expired (everything stays inside Apple Music)
 
-If `create_playlist` fails with `AUTH` and he cannot log in right now, call `export_playlist_text` with the ordered lines (`Artist - Title`). Give him the file path and the import steps: tunemymusic.com, source "Free text" or "Upload file", destination Apple Music, then check the "Missing" report.
+There is **no export file and no third-party importer** (no Tune My Music). Playlists are only ever created by the `apple-music` tools, directly in his library.
+
+If `create_playlist` fails with `AUTH`, the playlist was saved as **pending**: same verified tracks, same order, same name and description, so nothing is lost. Tell him to run `apple-music-mcp login` in the Mac Terminal. When he confirms, call `finish_pending_playlists` and give him the link. To drop a pending idea, pass its name in `discard`.
 
 ## 8. Edit an existing playlist (keep it flowing)
 

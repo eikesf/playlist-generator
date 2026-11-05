@@ -47,14 +47,14 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 
 - **Understands the purpose** (study, workout, running, party, DJ-style set, chill, sleep, genre exploration) and asks only the questions that matter: size, energy curve, known vs new ratio, vocals, reference artists and tracks.
 - **Plans the playlist.** From the purpose and duration it computes the acts, how many tracks go in each act, and the target energy and tempo along the way. For example, 2 h of techno comes out as 18 tracks in five acts.
-- **Knows your taste.** It reads your library, recently played tracks, heavy rotation and your love/dislike ratings from Apple Music. Every verified track is tagged *known* or *new*, so the known/new ratio you ask for is measured, not guessed, and disliked songs are flagged and left out.
+- **Knows your taste.** It reads your library, recently played tracks, heavy rotation and your love/dislike ratings from Apple Music. When a playlist is created you choose **two separate targets**: the % of **songs** you already know and the % of **artists** you already know. Knowing an artist doesn't mean knowing all their songs, so every track falls in one of three groups: a song you know, a new song by an artist you know (deep cut), or a new artist. The tool fills each group from the right source and checks the real mix before creating. The goal is high enjoyment plus real discovery. Disliked songs are flagged and left out.
 - **Discovers with Apple's data**: similar artists from the catalog, and top songs from those artists that you don't know yet.
 - **Verifies every track** against the Apple Music catalog for your storefront. Fuzzy matching handles accents, "feat.", collabs and remixes. It rejects karaoke, live and cover versions and the wrong remixer, removes radio-edit duplicates, and reports what isn't available instead of guessing.
 - **Sequences like a DJ, with real tempo.** BPM is **measured** from public databases (GetSongBPM with a free key, Deezer without one) and falls back to Claude's estimate only when a track isn't found. Half/double-time readings are corrected. Claude estimates the energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
 - **Edits existing playlists without breaking the vibe.** New tracks are **inserted exactly where they fit**: the existing order stays untouched and each new track goes into the slot that best matches the energy curve, BPM flow and artist spacing. Removing a track keeps everything else in order. You can also reorder, rename or fully re-sequence on request. Edits are verified by reading the playlist back.
 - **Refreshes without losing anything.** A weekly refresh (on request or scheduled on the Mac) fills a separate **"<name> · Descobertas"** playlist with new tracks. Tracks you love or play a lot there are suggested for promotion into the main playlist, at the right position. It suggests rotating out the least-played tracks only when your Mac's play counts can really tell them apart, and it flags tracks you disliked. **Nothing leaves the main playlist unless you confirm it**, and everything that leaves is first copied to **"<name> · Arquivo"**.
-- **Has fallbacks.** If the catalog API is unavailable, search falls back to the public iTunes Search API. If you're logged out, it can export a `.txt` file for Tune My Music.
+- **Everything happens inside Apple Music.** There are no export files and no third-party importers. If the catalog API is unavailable, search falls back to Apple's own public iTunes Search API. If your login expired, the playlist is kept as **pending** (same tracks and order) and created with one command after `apple-music-mcp login`.
 - **Diagnoses itself.** `apple-music-mcp doctor --write` tests the whole chain live: token, search, account, create, reorder, delete.
 
 ## How it works
@@ -152,6 +152,8 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | Tool | Purpose |
 |---|---|
 | `auth_status` | Checks the developer token, user token and account storefront, and says what to do if login is needed |
+| `known_tracks` | Songs you already know by given artists (loved first) |
+| `deep_cuts` | Songs by artists you know that you haven't heard yet |
 | `my_taste_profile` | Your top artists (library + recently played + heavy rotation) and recent tracks |
 | `similar_artists` | Artists Apple considers similar |
 | `discover_tracks` | Top songs of similar artists that you don't know yet and haven't disliked |
@@ -173,9 +175,9 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `list_playlists` / `get_playlist_tracks` | Reads your library |
 | `plan_playlist_refresh` | Read-only refresh plan: least-played (when identifiable) and disliked candidates, discoveries added to "· Descobertas", promotion candidates |
 | `apply_playlist_refresh` | Applies only what you confirmed: archive then remove, promote into the main playlist at the best position |
-| `export_playlist_text` | Offline fallback: `.txt` file for Tune My Music |
+| `finish_pending_playlists` | Creates playlists that were kept as pending while the login was expired |
 
-CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | refresh --playlist NAME | schedule-refresh --playlist NAME`.
+CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | refresh --playlist NAME | schedule-refresh --playlist NAME`.
 
 **Weekly refresh on the Mac (optional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` writes a launchd agent (Monday 10:07 by default) and prints the `launchctl load` command. It only runs the read-only plan: it fills "· Descobertas" and shows a notification. Play counts come from the Music app via AppleScript, and macOS asks once for permission (System Settings → Privacy & Security → Automation).
 
@@ -224,7 +226,7 @@ src/apple_music_mcp/
 └── browser_login.py          optional Playwright token capture
 skill/playlist-curator/       the Claude skill (+ zip for upload)
 docs/adr/                     architecture decision records
-tests/                        150+ tests, including a stateful fake Apple API
+tests/                        160+ tests, including a stateful fake Apple API
 ```
 
 **SOLID in practice**
@@ -233,6 +235,10 @@ tests/                        150+ tests, including a stateful fake Apple API
 - **Liskov / interface segregation**: anything with `search_songs` is a `SongSearcher` (catalog, iTunes, fakes).
 - **Dependency inversion**: domain code receives its collaborators. Only `container.py` knows how to build them, so tests swap in fakes.
 - **DRY**: one retry policy, one error mapper for every tool, one normalization module, one private-file writer.
+
+## Other streaming services (roadmap)
+
+Today the app is **Apple Music only**, by design. Everything service-specific lives in `src/apple_music_mcp/apple/`: transport, tokens, catalog, library and taste. The curation engine (purpose profiles, planning, familiarity mix, sequencing, insertion, refresh rules) only talks to those services through small interfaces (`ports.py`). Supporting another service later, such as Spotify or Deezer, means writing a sibling provider package that implements the same catalog, library and taste operations. The curation logic and the skill stay the same.
 
 ## Key decisions
 
@@ -248,6 +254,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 8. [Local credentials and secret scanning](docs/adr/0008-local-credentials-and-secret-scanning.md).
 9. [Small stacked PRs, one issue each](docs/adr/0009-stacked-pull-requests.md).
 10. [Refresh never loses a track: staging, archive, explicit confirmation](docs/adr/0010-refresh-never-lose-a-track.md).
+11. [Familiarity mix: known songs and known artists are separate targets](docs/adr/0011-familiarity-mix.md).
 
 ## Security and privacy
 
@@ -266,7 +273,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
   - MCP protocol tests (an in-process client, plus a **real stdio subprocess** with the legacy `initialize` handshake that Claude Desktop uses)
   - **end-to-end simulations** of whole sessions (plan → resolve → order → create → read back, and create → resequence → remove → rename)
 - **Live checks**: `apple-music-mcp doctor --write` on your Mac.
-- `uv run pytest -q` runs 150+ tests in about 8 seconds, offline.
+- `uv run pytest -q` runs 160+ tests in about 8 seconds, offline.
 
 ## Limitations
 
@@ -319,6 +326,8 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #27 | #23 | Taste-aware discovery: library, recently played, ratings, similar artists |
 | #28 | #24 | Measured BPM from GetSongBPM / Deezer with estimate fallback |
 | #29 | #25 | Weekly refresh: staging playlist, archive-before-remove, promote what you like |
+| #31 | #30 | Familiarity mix: separate % of known songs and known artists |
+| #33 | #32 | Apple Music only: no export/Tune My Music fallback; pending playlists after expired login |
 
 ## Guia rápido (pt-BR)
 

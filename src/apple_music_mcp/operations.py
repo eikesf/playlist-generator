@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
+from .apple.errors import AuthError
 from .bpm.service import align_octave
 from .container import AppContainer
 from .curation.profiles import get_profile
@@ -87,3 +89,62 @@ async def insert_into_playlist(
         "existing_order_preserved": True,
         "warnings": plan["warnings"],
     }
+
+
+PENDING_KEY = "pending_playlists"
+
+
+class PendingPlaylists:
+    """Playlists that could not be created because the login expired; finished after `login`.
+
+    Everything stays inside the app: no export files, no third-party importers.
+    """
+
+    def __init__(self, app: AppContainer):
+        self.app = app
+
+    def list(self) -> list[dict[str, Any]]:
+        return list(self.app.state.get(PENDING_KEY, []) or [])
+
+    def add(self, name: str, description: str | None, song_ids: list[str]) -> dict[str, Any]:
+        items = [p for p in self.list() if p["name"] != name]
+        draft = {"name": name, "description": description, "song_ids": song_ids, "saved_at": time.time()}
+        self.app.state.set(PENDING_KEY, [*items, draft])
+        return draft
+
+    def discard(self, name: str) -> bool:
+        items = self.list()
+        kept = [p for p in items if p["name"] != name]
+        self.app.state.set(PENDING_KEY, kept)
+        return len(kept) != len(items)
+
+    async def finish(self) -> list[dict[str, Any]]:
+        """Create every pending playlist now (after a successful login)."""
+        done = []
+        for draft in self.list():
+            result = await create_with_tracks(
+                self.app, draft["name"], draft.get("description"), draft["song_ids"]
+            )
+            self.discard(draft["name"])
+            done.append(result)
+        return done
+
+
+async def create_with_tracks(
+    app: AppContainer, name: str, description: str | None, song_ids: list[str]
+) -> dict[str, Any]:
+    """Create a library playlist and add the tracks in order. If the Apple Music login has expired,
+    the playlist is kept as pending (state file) and an AuthError tells the user to log in again."""
+    try:
+        playlist = await app.library.create_playlist(name, description or None)
+    except AuthError as exc:
+        PendingPlaylists(app).add(name, description, song_ids)
+        raise AuthError(
+            f"{exc} The playlist '{name}' ({len(song_ids)} tracks, verified and ordered) was saved as "
+            "pending. After `apple-music-mcp login`, call `finish_pending_playlists` (or run "
+            "`apple-music-mcp finish-pending`) and it is created exactly as planned.",
+            exc.status,
+            exc.body,
+        ) from exc
+    added = await app.library.add_tracks(playlist.id, song_ids)
+    return {"created": True, "playlist": playlist.to_dict(), "tracks_added": added}

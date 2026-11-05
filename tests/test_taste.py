@@ -66,10 +66,10 @@ def _server(fake_apple, tmp_path, token="default"):
     creds = Credentials(
         media_user_token=fake_apple.user_token if token == "default" else token, storefront="br"
     )
-    return build_server(lambda: build_app(creds), export_dir=tmp_path)
+    return build_server(lambda: build_app(creds))
 
 
-async def test_resolve_reports_real_known_new_ratio_and_dislikes(fake_apple, tmp_path):
+async def test_resolve_reports_familiarity_buckets_and_dislikes(fake_apple, tmp_path):
     tracks = [
         "Charlotte de Witte - Doppler",
         "Amelie Lens - Feel It",
@@ -78,11 +78,14 @@ async def test_resolve_reports_real_known_new_ratio_and_dislikes(fake_apple, tmp
     async with Client(_server(fake_apple, tmp_path)) as c:
         data = (await c.call_tool("resolve_tracks", {"tracks": tracks})).structured_content
     rows = {r["request"]: r for r in data["tracks"]}
-    assert rows["Charlotte de Witte - Doppler"]["familiarity"] == "known"
-    assert rows["Amelie Lens - Feel It"]["familiarity"] == "new"
+    assert rows["Charlotte de Witte - Doppler"]["familiarity"] == "known_track"
+    assert rows["Amelie Lens - Feel It"]["familiarity"] == "known_artist_new_track"
+    assert rows["Boris Brejcha - Gravity (Ann Clue Remix)"]["familiarity"] == "new_artist"
     assert rows["Boris Brejcha - Gravity (Ann Clue Remix)"]["disliked"] is True
-    assert data["summary"]["known"] == 1 and data["summary"]["new"] == 2
-    assert data["summary"]["known_ratio"] == 0.33 and data["summary"]["disliked"] == 1
+    summary = data["summary"]
+    assert summary["familiarity"] == {"known_track": 1, "known_artist_new_track": 1, "new_artist": 1}
+    assert summary["known_tracks_pct"] == 33 and summary["known_artists_pct"] == 67
+    assert summary["disliked"] == 1
 
 
 async def test_resolve_without_login_still_works(fake_apple, tmp_path):
