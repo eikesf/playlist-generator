@@ -118,11 +118,11 @@ def test_set_bpm_key_saves_and_removes(capsys):
 
 
 async def test_doctor_reports_bpm_check(fake_apple):
-    fake_apple.deezer_bpm = {"1001": 132.0}
+    fake_apple.deezer_bpm = {"7001": 126.0}
     save_credentials(Credentials(media_user_token=fake_apple.user_token, storefront="br"))
     lines: list[str] = []
     await run_doctor(False, build=build_app, out=lines.append)
-    assert any("BPM databases: deezer: 132 BPM" in line for line in lines)
+    assert any("BPM databases: deezer: 126 BPM" in line for line in lines)
 
 
 async def test_refresh_command_is_read_only_for_main(fake_apple):
