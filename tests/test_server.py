@@ -23,6 +23,11 @@ EXPECTED_TOOLS = {
     "list_playlist_profiles",
     "plan_playlist",
     "order_tracks",
+    "reorder_playlist",
+    "sync_playlist",
+    "remove_tracks_from_playlist",
+    "resequence_playlist",
+    "rename_playlist",
 }
 
 
@@ -142,3 +147,49 @@ async def test_plan_and_order_tools(server_factory):
         server_factory(), "order_tracks", {"purpose": "dj_set", "tracks": [{"id": "1", "energy": 99}]}
     )
     assert bad.is_error
+
+
+async def test_editing_tools_via_mcp(server_factory, fake_apple):
+    server = server_factory()
+    async with Client(server) as c:
+        created = (
+            await c.call_tool("create_playlist", {"name": "Set", "song_ids": ["1001", "4001"]})
+        ).structured_content
+        pid = created["playlist"]["id"]
+        tracks = (await c.call_tool("get_playlist_tracks", {"playlist_id": pid})).structured_content["tracks"]
+        assert [t["id"] for t in tracks] == ["1001", "4001"]
+
+        bad = await c.call_tool(
+            "reorder_playlist", {"playlist_id": pid, "song_ids_in_order": ["4001", "2001"]}
+        )
+        assert bad.is_error and "same tracks" in bad.content[0].text
+
+        ok = await c.call_tool(
+            "reorder_playlist", {"playlist_id": pid, "song_ids_in_order": ["4001", "1001"]}
+        )
+        assert ok.structured_content["verified_order"] is True
+        assert fake_apple.playlists[pid]["tracks"] == ["4001", "1001"]
+
+        # Add two new tracks and let the engine re-sequence the whole set.
+        new_set = [
+            {"id": "4001", "artist": "Stephan Bodzin", "title": "Singularity", "bpm": 122, "energy": 3},
+            {"id": "1001", "artist": "Charlotte de Witte", "title": "Doppler", "bpm": 134, "energy": 9.5},
+            {"id": "2002", "artist": "Amelie Lens", "title": "Feel It", "bpm": 128, "energy": 6},
+            {"id": "4002", "artist": "Stephan Bodzin", "title": "Strand", "bpm": 124, "energy": 5},
+        ]
+        res = await c.call_tool(
+            "resequence_playlist", {"playlist_id": pid, "purpose": "dj_set", "tracks": new_set}
+        )
+        data = res.structured_content
+        assert data["edit"]["verified_order"]
+        assert fake_apple.playlists[pid]["tracks"] == data["sequence"]["song_ids_in_order"]
+        assert fake_apple.playlists[pid]["tracks"][0] == "4001"
+        assert set(fake_apple.playlists[pid]["tracks"]) == {"4001", "1001", "2002", "4002"}
+
+        await c.call_tool("remove_tracks_from_playlist", {"playlist_id": pid, "song_ids": ["2002"]})
+        assert "2002" not in fake_apple.playlists[pid]["tracks"]
+
+        renamed = (
+            await c.call_tool("rename_playlist", {"playlist_id": pid, "name": "Set v2"})
+        ).structured_content
+        assert renamed["playlist"]["name"] == "Set v2"

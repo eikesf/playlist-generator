@@ -60,18 +60,32 @@ async def _library(app: AppContainer) -> str:
 
 
 async def _write_roundtrip(app: AppContainer) -> str:
-    songs = await app.catalog.search_songs("Stephan Bodzin Singularity", limit=2)
-    if not songs:
-        raise AppleMusicError("no song to add")
+    songs = await app.catalog.search_songs("Stephan Bodzin Singularity", limit=3)
+    if len(songs) < 2:
+        raise AppleMusicError("need at least 2 songs for the write test")
+    ids = [s.id for s in songs[:2]]
     pl = await app.library.create_playlist(TEST_PLAYLIST, "Temporary, safe to delete")
-    await app.library.add_tracks(pl.id, [s.id for s in songs])
-    entries = await app.library.playlist_tracks(pl.id)
     try:
-        await app.library.delete_playlist(pl.id)
-        cleanup = "deleted again"
+        await app.library.add_tracks(pl.id, ids)
+        entries = await app.library.playlist_tracks(pl.id)
+        edit = await app.editor.sync(pl.id, list(reversed(ids)))
+        pl_id = edit.playlist.id
+        detail = (
+            f"created with {len(entries)} track(s); reorder via '{edit.strategy}' "
+            f"{'verified' if edit.verified else 'NOT verified'}"
+        )
+    except Exception:
+        await _cleanup(app, pl.id)
+        raise
+    return f"{detail}; {await _cleanup(app, pl_id)}"
+
+
+async def _cleanup(app: AppContainer, playlist_id: str) -> str:
+    try:
+        await app.library.delete_playlist(playlist_id)
+        return "test playlist deleted"
     except AppleMusicError:
-        cleanup = f"could not delete it via API; delete '{TEST_PLAYLIST}' in the Music app"
-    return f"created {pl.id} with {len(entries)} track(s), {cleanup}"
+        return f"could not delete it via API; delete '{TEST_PLAYLIST}' in the Music app"
 
 
 DEFAULT_CHECKS: list[Check] = [
@@ -80,7 +94,7 @@ DEFAULT_CHECKS: list[Check] = [
     Check("iTunes Search fallback", _itunes, required=False),
     Check("user token", _account, proves_login=True),
     Check("library access", _library, needs_login=True),
-    Check("create playlist (write test)", _write_roundtrip, needs_login=True, writes=True),
+    Check("create + reorder playlist (write test)", _write_roundtrip, needs_login=True, writes=True),
 ]
 
 

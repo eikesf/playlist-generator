@@ -14,7 +14,9 @@ INSTRUCTIONS = """\
 Apple Music tools for curating playlists and creating them directly in the user's library.
 Flow: (1) `plan_playlist` for the purpose (study, workout, dj_set, party...) and duration,
 (2) propose tracks per act and verify them with `resolve_tracks`, (3) estimate BPM/energy per track
-and sequence with `order_tracks`, (4) `create_playlist` with `song_ids_in_order`.
+and sequence with `order_tracks`, (4) `create_playlist` with `song_ids_in_order`. To change an existing
+playlist (new tracks, adjustments) use `resequence_playlist`; `reorder_playlist`/`sync_playlist` for
+exact orders. Edits are applied in the user's library directly.
 Never invent catalog ids. On an AUTH error, tell the user to run `apple-music-mcp login` on their Mac.
 """
 

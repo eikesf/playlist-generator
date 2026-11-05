@@ -13,6 +13,7 @@ from .apple.library import LibraryService
 from .apple.tokens import DeveloperTokenProvider, TokenScraper, scrape_developer_token
 from .apple.transport import AmpTransport
 from .config import Credentials, CredentialStore, StateStore
+from .editing import PlaylistEditor
 
 
 class AppContainer:
@@ -40,6 +41,7 @@ class AppContainer:
         self.itunes = ITunesSearch(self._http, self.storefront, retry, sleep)
         self.catalog = CatalogService(self.transport, self.storefront, fallback=self.itunes)
         self.library = LibraryService(self.transport)
+        self.editor = PlaylistEditor(self.library, self.state)
 
     def storefront(self) -> str:
         return self.credentials.storefront

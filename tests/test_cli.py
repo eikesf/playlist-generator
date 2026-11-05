@@ -48,7 +48,8 @@ async def test_doctor_passes_including_write_roundtrip(fake_apple):
     text = "\n".join(lines)
     assert code == 0, text
     assert "All checks passed." in text
-    assert "create playlist (write test)" in text and "deleted again" in text
+    assert "create + reorder playlist (write test)" in text
+    assert "reorder via 'in_place' verified" in text and "test playlist deleted" in text
     assert fake_apple.playlists == {}
 
 

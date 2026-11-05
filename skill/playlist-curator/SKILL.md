@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -81,7 +81,20 @@ Call `order_tracks` with the purpose and the tracks (id, artist, title, bpm, ene
 
 If `create_playlist` fails with `AUTH` and he cannot log in right now, call `export_playlist_text` with the ordered lines (`Artist - Title`). Give him the file path and the import steps: tunemymusic.com, source "Free text" or "Upload file", destination Apple Music, then check the "Missing" report.
 
-## 8. Follow-up
+## 8. Edit an existing playlist (keep it flowing)
 
-- To extend a playlist, use `list_playlists` to find it, `resolve_tracks` for the new tracks and `add_tracks_to_playlist` (tracks are appended at the end).
-- Offer a deeper second playlist focused on the artists he liked most after a week or two of listening.
+Every edit goes straight to his Apple Music library. Never ask him to drag tracks by hand.
+
+1. Find it with `list_playlists`, then read the current order with `get_playlist_tracks` (each track has an `id`).
+2. Pick the tool for the change:
+   - **New tracks or several adjustments** (the usual case): verify the new tracks with `resolve_tracks`. Then call `resequence_playlist` with the purpose and the full final set: kept tracks plus new ones, each with estimated `bpm` and `energy`. It re-sequences everything along the energy curve, adds the new tracks, removes the dropped ones and puts everything in order in one call.
+   - **Only the order changes**: `reorder_playlist` with the ids in the new order (same tracks).
+   - **Remove tracks**: `remove_tracks_from_playlist`.
+   - **Exact final list you already ordered**: `sync_playlist`.
+   - **Name or description**: `rename_playlist`.
+   - Appending at the end without re-sequencing: `add_tracks_to_playlist`.
+3. Read the result: `verified_order: true` means the library now matches. If `strategy` is `rebuild`, Apple refused in-place editing, so the playlist was recreated with the same name and its link changed. Tell him and give the new link. Pass on any `warnings` (for example an old copy to delete in the Music app).
+
+## 9. Follow-up
+
+Offer a deeper second playlist focused on the artists he liked most after a week or two of listening, or an extension of this one using `resequence_playlist`.
