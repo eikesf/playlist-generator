@@ -29,6 +29,9 @@ EXPECTED_TOOLS = {
     "resequence_playlist",
     "rename_playlist",
     "insert_tracks_into_playlist",
+    "my_taste_profile",
+    "similar_artists",
+    "discover_tracks",
 }
 
 

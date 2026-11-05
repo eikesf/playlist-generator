@@ -1,0 +1,174 @@
+"""The user's real taste from Apple Music: library, recently played, heavy rotation, ratings.
+
+Used to tell "known" from "new" tracks (so the known/new ratio is measured, not guessed), to avoid
+disliked songs and to seed discovery. Results are cached in the local state file for a few hours.
+"""
+
+from __future__ import annotations
+
+import time
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any
+
+from ..config import StateStore
+from ..models import Song
+from ..text import primary_artist
+from .errors import AppleMusicError, AuthError
+from .transport import AmpTransport
+
+CACHE_KEY = "taste_cache"
+CACHE_TTL_SECONDS = 6 * 3600
+MAX_LIBRARY_SONGS = 5000
+RATINGS_CHUNK = 100
+
+
+@dataclass
+class TasteProfile:
+    library_ids: set[str] = field(default_factory=set)
+    recent: list[Song] = field(default_factory=list)
+    heavy_rotation_artists: list[str] = field(default_factory=list)
+    artist_counts: dict[str, int] = field(default_factory=dict)  # display name -> weight
+    fetched_at: float = field(default_factory=time.time)
+
+    @property
+    def known_ids(self) -> set[str]:
+        return self.library_ids | {s.id for s in self.recent}
+
+    def is_known(self, song_id: str) -> bool:
+        return song_id in self.known_ids
+
+    def knows_artist(self, artist: str) -> bool:
+        key = primary_artist(artist)
+        return any(primary_artist(a) == key for a in self.artist_counts)
+
+    def top_artists(self, n: int = 20) -> list[dict[str, Any]]:
+        return [{"artist": a, "weight": w} for a, w in Counter(self.artist_counts).most_common(n)]
+
+    def to_cache(self) -> dict[str, Any]:
+        return {
+            "library_ids": sorted(self.library_ids),
+            "recent": [s.to_dict() for s in self.recent],
+            "heavy_rotation_artists": self.heavy_rotation_artists,
+            "artist_counts": self.artist_counts,
+            "fetched_at": self.fetched_at,
+        }
+
+    @classmethod
+    def from_cache(cls, data: dict[str, Any]) -> TasteProfile:
+        fields = {
+            "id",
+            "name",
+            "artist",
+            "album",
+            "duration_ms",
+            "genres",
+            "release_date",
+            "url",
+            "isrc",
+            "explicit",
+            "source",
+        }
+        return cls(
+            library_ids=set(data.get("library_ids", [])),
+            recent=[Song(**{k: v for k, v in s.items() if k in fields}) for s in data.get("recent", [])],
+            heavy_rotation_artists=list(data.get("heavy_rotation_artists", [])),
+            artist_counts=dict(data.get("artist_counts", {})),
+            fetched_at=float(data.get("fetched_at", 0)),
+        )
+
+
+class TasteService:
+    def __init__(self, transport: AmpTransport, state: StateStore):
+        self._amp = transport
+        self._state = state
+        self._profile: TasteProfile | None = None
+
+    async def profile(self, refresh: bool = False) -> TasteProfile:
+        if not refresh:
+            if self._profile and time.time() - self._profile.fetched_at < CACHE_TTL_SECONDS:
+                return self._profile
+            cached = self._state.get(CACHE_KEY)
+            if cached and time.time() - float(cached.get("fetched_at", 0)) < CACHE_TTL_SECONDS:
+                self._profile = TasteProfile.from_cache(cached)
+                return self._profile
+        self._profile = await self._fetch()
+        self._state.set(CACHE_KEY, self._profile.to_cache())
+        return self._profile
+
+    async def _fetch(self) -> TasteProfile:
+        profile = TasteProfile()
+        counts: Counter[str] = Counter()
+        async for item in self._amp.paginate(
+            "/v1/me/library/songs", params={"limit": 100}, user=True, limit=MAX_LIBRARY_SONGS
+        ):
+            attrs = item.get("attributes") or {}
+            catalog_id = (attrs.get("playParams") or {}).get("catalogId")
+            if catalog_id:
+                profile.library_ids.add(str(catalog_id))
+            if attrs.get("artistName"):
+                counts[attrs["artistName"]] += 1
+        profile.recent = await self._optional(self._recent)
+        for song in profile.recent:
+            counts[song.artist] += 3  # recent listening weighs more than an old library add
+        profile.heavy_rotation_artists = await self._optional(self._heavy_rotation)
+        for artist in profile.heavy_rotation_artists:
+            counts[artist] += 5
+        profile.artist_counts = dict(counts)
+        return profile
+
+    async def _optional(self, fn: Any) -> list:
+        """Recent/heavy-rotation are nice-to-have: some accounts return errors or nothing."""
+        try:
+            return await fn()
+        except AuthError:
+            raise
+        except AppleMusicError:
+            return []
+
+    async def _recent(self) -> list[Song]:
+        songs: list[Song] = []
+        for offset in (0, 30, 60):
+            data = await self._amp.request(
+                "GET", "/v1/me/recent/played/tracks", params={"limit": 30, "offset": offset}, user=True
+            )
+            items = (data or {}).get("data") or []
+            songs += [Song.from_amp(i) for i in items if i.get("type") == "songs"]
+            if len(items) < 30:
+                break
+        return songs
+
+    async def _heavy_rotation(self) -> list[str]:
+        data = await self._amp.request(
+            "GET", "/v1/me/history/heavy-rotation", params={"limit": 10}, user=True
+        )
+        names = []
+        for item in (data or {}).get("data") or []:
+            artist = (item.get("attributes") or {}).get("artistName")
+            if artist and artist not in names:
+                names.append(artist)
+        return names
+
+    async def ratings(self, song_ids: list[str]) -> dict[str, int]:
+        """Catalog song id -> 1 (loved) / -1 (disliked); unrated songs are absent."""
+        result: dict[str, int] = {}
+        ids = [i for i in dict.fromkeys(song_ids) if i and not i.startswith("i.")]
+        for k in range(0, len(ids), RATINGS_CHUNK):
+            try:
+                data = await self._amp.request(
+                    "GET",
+                    "/v1/me/ratings/songs",
+                    params={"ids": ",".join(ids[k : k + RATINGS_CHUNK])},
+                    user=True,
+                )
+            except AuthError:
+                raise
+            except AppleMusicError as exc:
+                if exc.status == 404:  # none of these songs is rated
+                    continue
+                raise
+            for item in (data or {}).get("data") or []:
+                value = (item.get("attributes") or {}).get("value")
+                if value in (1, -1):
+                    result[str(item.get("id"))] = int(value)
+        return result

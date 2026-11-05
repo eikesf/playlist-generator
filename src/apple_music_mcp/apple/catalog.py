@@ -57,6 +57,26 @@ class CatalogService:
         )
         return [Song.from_amp(i) for i in (data or {}).get("data", [])][:limit]
 
+    async def similar_artists(self, artist_id: str, limit: int = 10) -> list[Artist]:
+        """Artists Apple considers similar. Tries the artist view, then the relationship form."""
+        for path, params in (
+            (f"/artists/{artist_id}/view/similar-artists", {"limit": max(1, min(limit, 20))}),
+            (f"/artists/{artist_id}", {"views": "similar-artists"}),
+        ):
+            try:
+                data = await self._amp.request("GET", self._path(path), params=params)
+            except AuthError:
+                raise
+            except AppleMusicError:
+                continue
+            items = (data or {}).get("data") or []
+            if items and items[0].get("type") == "artists" and "views" in items[0]:
+                items = ((items[0].get("views") or {}).get("similar-artists") or {}).get("data") or []
+            artists = [Artist.from_amp(i) for i in items if i.get("type", "artists") == "artists"]
+            if artists:
+                return artists[:limit]
+        return []
+
     async def get_songs(self, ids: list[str]) -> list[Song]:
         songs: list[Song] = []
         for i in range(0, len(ids), 300):
