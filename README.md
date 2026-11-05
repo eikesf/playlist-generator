@@ -47,7 +47,7 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 
 - **Understands the purpose** (study, workout, running, party, DJ-style set, chill, sleep, genre exploration) and asks only the questions that matter: size, energy curve, known vs new ratio, vocals, reference artists and tracks.
 - **Plans the playlist.** From the purpose and duration it computes the acts, how many tracks go in each act, and the target energy and tempo along the way. For example, 2 h of techno comes out as 18 tracks in five acts.
-- **Knows your taste.** It reads your library, recently played tracks, heavy rotation and your love/dislike ratings from Apple Music. Every verified track is tagged *known* or *new*, so the known/new ratio you ask for is measured, not guessed, and disliked songs are flagged and left out.
+- **Knows your taste.** It reads your library, recently played tracks, heavy rotation and your love/dislike ratings from Apple Music. When a playlist is created you choose **two separate targets**: the % of **songs** you already know and the % of **artists** you already know. Knowing an artist doesn't mean knowing all their songs, so every track falls in one of three groups: a song you know, a new song by an artist you know (deep cut), or a new artist. The tool fills each group from the right source and checks the real mix before creating. The goal is high enjoyment plus real discovery. Disliked songs are flagged and left out.
 - **Discovers with Apple's data**: similar artists from the catalog, and top songs from those artists that you don't know yet.
 - **Verifies every track** against the Apple Music catalog for your storefront. Fuzzy matching handles accents, "feat.", collabs and remixes. It rejects karaoke, live and cover versions and the wrong remixer, removes radio-edit duplicates, and reports what isn't available instead of guessing.
 - **Sequences like a DJ, with real tempo.** BPM is **measured** from public databases (GetSongBPM with a free key, Deezer without one) and falls back to Claude's estimate only when a track isn't found. Half/double-time readings are corrected. Claude estimates the energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
@@ -152,6 +152,8 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | Tool | Purpose |
 |---|---|
 | `auth_status` | Checks the developer token, user token and account storefront, and says what to do if login is needed |
+| `known_tracks` | Songs you already know by given artists (loved first) |
+| `deep_cuts` | Songs by artists you know that you haven't heard yet |
 | `my_taste_profile` | Your top artists (library + recently played + heavy rotation) and recent tracks |
 | `similar_artists` | Artists Apple considers similar |
 | `discover_tracks` | Top songs of similar artists that you don't know yet and haven't disliked |
@@ -224,7 +226,7 @@ src/apple_music_mcp/
 └── browser_login.py          optional Playwright token capture
 skill/playlist-curator/       the Claude skill (+ zip for upload)
 docs/adr/                     architecture decision records
-tests/                        150+ tests, including a stateful fake Apple API
+tests/                        160+ tests, including a stateful fake Apple API
 ```
 
 **SOLID in practice**
@@ -248,6 +250,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 8. [Local credentials and secret scanning](docs/adr/0008-local-credentials-and-secret-scanning.md).
 9. [Small stacked PRs, one issue each](docs/adr/0009-stacked-pull-requests.md).
 10. [Refresh never loses a track: staging, archive, explicit confirmation](docs/adr/0010-refresh-never-lose-a-track.md).
+11. [Familiarity mix: known songs and known artists are separate targets](docs/adr/0011-familiarity-mix.md).
 
 ## Security and privacy
 
@@ -266,7 +269,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
   - MCP protocol tests (an in-process client, plus a **real stdio subprocess** with the legacy `initialize` handshake that Claude Desktop uses)
   - **end-to-end simulations** of whole sessions (plan → resolve → order → create → read back, and create → resequence → remove → rename)
 - **Live checks**: `apple-music-mcp doctor --write` on your Mac.
-- `uv run pytest -q` runs 150+ tests in about 8 seconds, offline.
+- `uv run pytest -q` runs 160+ tests in about 8 seconds, offline.
 
 ## Limitations
 
@@ -319,6 +322,7 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #27 | #23 | Taste-aware discovery: library, recently played, ratings, similar artists |
 | #28 | #24 | Measured BPM from GetSongBPM / Deezer with estimate fallback |
 | #29 | #25 | Weekly refresh: staging playlist, archive-before-remove, promote what you like |
+| #31 | #30 | Familiarity mix: separate % of known songs and known artists |
 
 ## Guia rápido (pt-BR)
 

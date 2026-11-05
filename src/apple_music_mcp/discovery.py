@@ -8,6 +8,7 @@ from typing import Any
 from .apple.catalog import CatalogService
 from .apple.errors import AppleMusicError
 from .apple.taste import TasteProfile, TasteService
+from .curation.familiarity import BUCKETS, MixTargets, mix_check
 from .models import Artist, Song
 from .resolver import ResolveReport
 from .text import primary_artist
@@ -110,22 +111,23 @@ class DiscoveryService:
         except Exception:  # noqa: BLE001 - ratings are a filter, not a requirement
             return {}
 
-    async def annotate(self, report: ResolveReport) -> dict[str, Any]:
-        """Add familiarity (known/new) and disliked flags to a resolve report."""
+    async def annotate(self, report: ResolveReport, targets: MixTargets | None = None) -> dict[str, Any]:
+        """Tag each match with its familiarity bucket and loved/disliked; check the mix vs targets."""
         data = report.to_dict()
         profile = await self._profile()
         ids = [r.song.id for r in report.resolutions if r.song]
         ratings = await self._ratings(ids)
-        known = new = disliked = 0
+        buckets = dict.fromkeys(BUCKETS, 0)
+        disliked = 0
         for row in data["tracks"]:
             song = row.get("song")
             if not song:
                 continue
             if profile is not None:
-                is_known = profile.is_known(song["id"])
-                row["familiarity"] = "known" if is_known else "new"
-                known += is_known
-                new += not is_known
+                bucket = profile.bucket(song["id"], song["artist"])
+                row["familiarity"] = bucket
+                if row["status"] == "matched":
+                    buckets[bucket] += 1
             if ratings.get(song["id"]) == -1:
                 row["disliked"] = True
                 disliked += 1
@@ -133,13 +135,67 @@ class DiscoveryService:
                 row["loved"] = True
         summary = data["summary"]
         if profile is not None:
-            summary["known"] = known
-            summary["new"] = new
-            total = known + new
-            summary["known_ratio"] = round(known / total, 2) if total else None
+            summary["familiarity"] = buckets
+            total = sum(buckets.values())
+            summary["known_tracks_pct"] = round(100 * buckets["known_track"] / total) if total else None
+            summary["known_artists_pct"] = (
+                round(100 * (buckets["known_track"] + buckets["known_artist_new_track"]) / total)
+                if total
+                else None
+            )
+            if targets is not None:
+                summary["mix_check"] = mix_check(buckets, targets)
         else:
-            summary["familiarity"] = "unavailable (log in to measure known vs new)"
+            summary["familiarity"] = "unavailable (log in to measure what is known)"
         if disliked:
             summary["disliked"] = disliked
             summary["note"] = "Tracks marked disliked were rated 'dislike' by the user: drop them."
         return data
+
+    async def known_tracks(self, artists: list[str], limit: int = 50) -> dict[str, Any]:
+        """Songs the user already knows by these artists; loved ones first (safest picks)."""
+        profile = await self._profile()
+        if profile is None:
+            return {"available": False, "tracks": []}
+        songs = profile.known_songs_by(artists)
+        ratings = await self._ratings([s["id"] for s in songs])
+        songs = [s for s in songs if ratings.get(s["id"]) != -1]
+        songs.sort(key=lambda s: -ratings.get(s["id"], 0))
+        rows = [
+            {**s, "line": f"{s['artist']} - {s['name']}", "loved": ratings.get(s["id"]) == 1}
+            for s in songs[:limit]
+        ]
+        return {"available": True, "count": len(rows), "tracks": rows}
+
+    async def deep_cuts(self, artists: list[str], per_artist: int = 4) -> dict[str, Any]:
+        """Songs by artists the user knows that the user has NOT heard yet (popular first)."""
+        profile = await self._profile()
+        pool: list[tuple[Song, str]] = []
+        not_found = []
+        for name in artists:
+            artist = await self.catalog.find_artist(name)
+            if not artist:
+                not_found.append(name)
+                continue
+            for song in await self.catalog.artist_top_songs(artist.id, limit=20):
+                pool.append((song, artist.name))
+        ratings = await self._ratings([s.id for s, _ in pool])
+        per: dict[str, int] = {}
+        rows = []
+        seen: set[str] = set()
+        for song, artist_name in pool:
+            if song.id in seen or ratings.get(song.id) == -1 or (profile and profile.is_known(song.id)):
+                continue
+            seen.add(song.id)
+            if per.get(artist_name, 0) >= per_artist:
+                continue
+            per[artist_name] = per.get(artist_name, 0) + 1
+            rows.append(
+                {**song.to_dict(), "line": f"{song.artist} - {song.name}", "artist_page": artist_name}
+            )
+        return {
+            "count": len(rows),
+            "tracks": rows,
+            "artists_not_found": not_found,
+            "taste_available": bool(profile),
+        }

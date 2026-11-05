@@ -57,3 +57,17 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             exclude=exclude_artists,
         )
         return result.to_dict()
+
+    @mcp.tool()
+    @tool_errors
+    async def known_tracks(artists: list[str], limit: int = 50) -> dict[str, Any]:
+        """Songs the user ALREADY KNOWS (library / recently played) by these artists, loved ones first.
+        Fills the 'known_track' share of the familiarity mix with the safest picks."""
+        return await provider.get().discovery.known_tracks(artists, limit=limit)
+
+    @mcp.tool()
+    @tool_errors
+    async def deep_cuts(artists: list[str], per_artist: int = 4) -> dict[str, Any]:
+        """Songs by artists the user already listens to that they have NOT heard yet (most popular
+        first, disliked excluded). Fills the 'known_artist_new_track' share of the familiarity mix."""
+        return await provider.get().discovery.deep_cuts(artists, per_artist=per_artist)

@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import StateStore
 from ..models import Song
-from ..text import primary_artist
+from ..text import artist_names
 from .errors import AppleMusicError, AuthError
 from .transport import AmpTransport
 
@@ -26,6 +26,7 @@ RATINGS_CHUNK = 100
 @dataclass
 class TasteProfile:
     library_ids: set[str] = field(default_factory=set)
+    library_songs: list[dict[str, str]] = field(default_factory=list)  # id, name, artist
     recent: list[Song] = field(default_factory=list)
     heavy_rotation_artists: list[str] = field(default_factory=list)
     artist_counts: dict[str, int] = field(default_factory=dict)  # display name -> weight
@@ -39,8 +40,33 @@ class TasteProfile:
         return song_id in self.known_ids
 
     def knows_artist(self, artist: str) -> bool:
-        key = primary_artist(artist)
-        return any(primary_artist(a) == key for a in self.artist_counts)
+        """True if any credited artist (main or featured) is one the user listens to."""
+        known = self._known_artist_keys()
+        return any(name in known for name in artist_names(artist))
+
+    def _known_artist_keys(self) -> set[str]:
+        keys: set[str] = set()
+        for a in self.artist_counts:
+            keys.update(artist_names(a))
+        return keys
+
+    def bucket(self, song_id: str, artist: str) -> str:
+        if self.is_known(song_id):
+            return "known_track"
+        return "known_artist_new_track" if self.knows_artist(artist) else "new_artist"
+
+    def known_songs_by(self, artists: list[str]) -> list[dict[str, str]]:
+        """Songs the user knows (library + recently played) credited to any of ``artists``."""
+        wanted = {n for a in artists for n in artist_names(a)}
+        songs = self.library_songs + [{"id": s.id, "name": s.name, "artist": s.artist} for s in self.recent]
+        seen: set[str] = set()
+        out = []
+        for song in songs:
+            if song["id"] in seen or not set(artist_names(song["artist"])) & wanted:
+                continue
+            seen.add(song["id"])
+            out.append(song)
+        return out
 
     def top_artists(self, n: int = 20) -> list[dict[str, Any]]:
         return [{"artist": a, "weight": w} for a, w in Counter(self.artist_counts).most_common(n)]
@@ -48,6 +74,7 @@ class TasteProfile:
     def to_cache(self) -> dict[str, Any]:
         return {
             "library_ids": sorted(self.library_ids),
+            "library_songs": self.library_songs,
             "recent": [s.to_dict() for s in self.recent],
             "heavy_rotation_artists": self.heavy_rotation_artists,
             "artist_counts": self.artist_counts,
@@ -71,6 +98,7 @@ class TasteProfile:
         }
         return cls(
             library_ids=set(data.get("library_ids", [])),
+            library_songs=list(data.get("library_songs", [])),
             recent=[Song(**{k: v for k, v in s.items() if k in fields}) for s in data.get("recent", [])],
             heavy_rotation_artists=list(data.get("heavy_rotation_artists", [])),
             artist_counts=dict(data.get("artist_counts", {})),
@@ -106,6 +134,13 @@ class TasteService:
             catalog_id = (attrs.get("playParams") or {}).get("catalogId")
             if catalog_id:
                 profile.library_ids.add(str(catalog_id))
+                profile.library_songs.append(
+                    {
+                        "id": str(catalog_id),
+                        "name": attrs.get("name", ""),
+                        "artist": attrs.get("artistName", ""),
+                    }
+                )
             if attrs.get("artistName"):
                 counts[attrs["artistName"]] += 1
         profile.recent = await self._optional(self._recent)
