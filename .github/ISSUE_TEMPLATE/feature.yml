@@ -1,0 +1,50 @@
+name: Feature
+description: A new capability or a change in behavior
+title: "feat: "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep one issue per deliverable. Link the decision guide section it implements (e.g. "Guide §7.10").
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this is needed. Link the guide section, ADR or parent issue.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Checklist of what will be delivered.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable outcomes, including tests and any `doctor` check.
+    validations:
+      required: true
+  - type: dropdown
+    id: gate
+    attributes:
+      label: Needs owner approval (GATE)?
+      options:
+        - "No: auto-merge allowed with green CI"
+        - "Yes: GATE item, owner approves before merge"
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks / [VERIFY] items
+      description: Assumptions that must be confirmed in official docs or live, and Apple-account risk if the change touches the web API.
