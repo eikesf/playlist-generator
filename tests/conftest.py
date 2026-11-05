@@ -31,3 +31,23 @@ def isolated_config(tmp_path, monkeypatch):
     for var in (config.ENV_USER_TOKEN, config.ENV_DEVELOPER_TOKEN, config.ENV_STOREFRONT):
         monkeypatch.delenv(var, raising=False)
     return tmp_path / "cfg"
+
+
+@pytest.fixture
+def fake_apple(respx_mock):
+    from .fake_apple import FakeAppleMusic
+
+    return FakeAppleMusic().install(respx_mock)
+
+
+@pytest.fixture
+async def client(fake_apple):
+    """A client with a valid user token and no developer token (it must scrape one)."""
+    from apple_music_mcp.client import AppleMusicClient
+
+    async def no_sleep(_: float) -> None:
+        return None
+
+    creds = config.Credentials(media_user_token=fake_apple.user_token, storefront=fake_apple.storefront)
+    async with AppleMusicClient(creds, sleep=no_sleep) as c:
+        yield c
