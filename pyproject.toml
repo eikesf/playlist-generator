@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.44"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5", "mypy>=1.10"]
 
 [project.scripts]
 apple-music-mcp = "apple_music_mcp.cli:main"
@@ -37,6 +37,18 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "scripts", "tests"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+# Optional extra (`.[browser]`); imported lazily and not installed in CI.
+module = ["playwright.*"]
+ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel.force-include]
 "skill/playlist-curator/SKILL.md" = "apple_music_mcp/skill/SKILL.md"

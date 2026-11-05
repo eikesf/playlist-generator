@@ -91,10 +91,23 @@
 
 ## 7. Validation log (to be filled during §3.3)
 
-| Date | Step | Result | Fix |
+Run on the owner's Mac, account storefront `br`. Tokens are not recorded.
+
+| Date | Step | Result | Detail / fix |
 |---|---|---|---|
-| — | `login` | pending | — |
-| — | `doctor` (read) | pending | — |
-| — | `doctor --write` | pending | — |
+| 2026-11-05 | `login` (first try) | **FAIL** | `index~<hash>.js: no valid JWT`. Root cause: the bundle holds 3 JWTs with `typ`-first headers, and one is pinned to another origin (401). Fixed in #38: any JWT form, prefer `iss=AMPWebPlay`, crawl chunks, resolve bare `assets/` refs |
+| 2026-11-05 | BPM (Deezer) | **FAIL → fixed** | Advanced `artist:"…" track:"…"` query returns nothing live. Fixed in #39 (plain query, fuzzy match) |
+| 2026-11-05 | `login` | ok | Signed in, storefront `br` |
+| 2026-11-05 | `doctor` (read) | ok | Developer token valid 57 more days (268 chars); catalog search ok (`apple-music`); iTunes fallback ok; BPM via Deezer ok (126 BPM); user token ok; library: 12 playlists |
+| 2026-11-05 | `doctor --write` | ok | Created a 2-track test playlist, reordered **in place** (verified), deleted it |
+| 2026-11-05 | `doctor`: recently played | ok | 50 songs, 0 non-song items (stations); confirms the ~50-item history |
+| 2026-11-05 | `doctor`: song ratings | ok | 24 library songs checked: 1 loved, 0 disliked |
+| 2026-11-05 | `doctor`: heavy rotation | ok | 7 items |
+| 2026-11-05 | `doctor`: similar artists | ok | 5 artists returned |
+| 2026-11-05 | `doctor`: Music app stats (AppleScript) | **warn → fix** | Automation permission granted (error -1728, not -1743). The check used the first API playlist by name, and two such playlists were not among the Music app's user playlists. The Music app also keeps a trailing space in one name ("Epic songs "). Fix: look up the Music app's own spelling (exact, then normalized), skip playlists it lacks. Rerun pending |
 | — | Dispatch from iPhone calls `auth_status` | pending | — |
 | — | Desktop scheduled task calls an MCP tool | pending | — |
+
+Notes:
+- The developer token found live has about 57 days left. `DeveloperTokenProvider` re-scrapes it automatically on expiry or 401.
+- The user token's expiry date (cookie *Expires*) is not stored yet. That is a Phase 1 item (guide §5).

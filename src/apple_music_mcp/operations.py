@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from .apple.errors import AuthError
@@ -92,6 +93,8 @@ async def insert_into_playlist(
 
 
 PENDING_KEY = "pending_playlists"
+# Module-level alias: inside PendingPlaylists, `list` names the method, not the builtin.
+Drafts = list[dict[str, Any]]
 
 
 class PendingPlaylists:
@@ -103,12 +106,12 @@ class PendingPlaylists:
     def __init__(self, app: AppContainer):
         self.app = app
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> Drafts:
         return list(self.app.state.get(PENDING_KEY, []) or [])
 
-    def add(self, name: str, description: str | None, song_ids: list[str]) -> dict[str, Any]:
+    def add(self, name: str, description: str | None, song_ids: Sequence[str]) -> dict[str, Any]:
         items = [p for p in self.list() if p["name"] != name]
-        draft = {"name": name, "description": description, "song_ids": song_ids, "saved_at": time.time()}
+        draft = {"name": name, "description": description, "song_ids": [*song_ids], "saved_at": time.time()}
         self.app.state.set(PENDING_KEY, [*items, draft])
         return draft
 
@@ -118,7 +121,7 @@ class PendingPlaylists:
         self.app.state.set(PENDING_KEY, kept)
         return len(kept) != len(items)
 
-    async def finish(self) -> list[dict[str, Any]]:
+    async def finish(self) -> Drafts:
         """Create every pending playlist now (after a successful login)."""
         done = []
         for draft in self.list():

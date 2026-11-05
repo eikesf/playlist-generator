@@ -8,7 +8,13 @@ import pytest
 from mcp import Client
 
 from apple_music_mcp.config import Credentials
-from apple_music_mcp.local_music import SEP, MusicAppReader, MusicAppUnavailable, parse_stats
+from apple_music_mcp.local_music import (
+    SEP,
+    MusicAppReader,
+    MusicAppUnavailable,
+    PlaylistNotInMusicApp,
+    parse_stats,
+)
 from apple_music_mcp.refresh import ARCHIVE_SUFFIX, PLANS_KEY, STAGING_SUFFIX, RefreshService, RefreshSettings
 from apple_music_mcp.server import build_server
 
@@ -23,9 +29,11 @@ def fake_music_app(fake_apple, plays: dict[str, int], favorites=(), recent=(), f
     async def runner(args):
         if fail:
             return 1, "", "execution error: Not authorized to send Apple events to Music. (-1743)"
+        if args[0] == "names":
+            return 0, "".join(pl["name"] + "\n" for pl in fake_apple.playlists.values()), ""
         lines = []
         for pl in fake_apple.playlists.values():
-            if pl["name"] != args[0]:
+            if pl["name"] != args[1]:
                 continue
             for sid in pl["tracks"]:
                 song = fake_apple.songs_by_id[sid]
@@ -47,6 +55,7 @@ async def _main_playlist(app, name="Warehouse"):
 def test_parse_stats():
     line = SEP.join(["Doppler", "Charlotte de Witte", "12", "1", "true", "false", "2026-01-02T03:04:05"])
     [s] = parse_stats(line + "\n" + "garbage line\n")
+    assert s.date_added is not None
     assert (s.played, s.skipped, s.favorited, s.date_added.year) == (12, 1, True, 2026)
 
 
@@ -55,6 +64,41 @@ async def test_reader_unavailable_off_macos_and_without_permission(fake_apple):
         await MusicAppReader(system="Linux").playlist_stats("x")
     with pytest.raises(MusicAppUnavailable, match="Automation"):
         await fake_music_app(fake_apple, {}, fail=True).playlist_stats("x")
+
+
+def music_app_with(playlists: dict[str, list[str]]) -> MusicAppReader:
+    """A Music app whose user playlists are exactly ``playlists`` (name -> track lines)."""
+    calls: list[list[str]] = []
+
+    async def runner(args):
+        calls.append(args)
+        if args[0] == "names":
+            return 0, "".join(name + "\n" for name in playlists), ""
+        if args[1] not in playlists:  # what AppleScript does for an unknown name
+            return 1, "", f'Can’t get user playlist 1 whose name = "{args[1]}". (-1728)'
+        return 0, "".join(line + "\n" for line in playlists[args[1]]), ""
+
+    reader = MusicAppReader(runner=runner, system="Darwin")
+    reader.calls = calls  # type: ignore[attr-defined]
+    return reader
+
+
+async def test_reader_matches_the_music_app_spelling_of_the_name():
+    line = SEP.join(["Time", "Hans Zimmer", "3", "0", "false", "false", ""])
+    # Seen live: the Music app keeps a trailing space the web API may not.
+    reader = music_app_with({"Epic songs ": [line], "Café  Focus": [line]})
+    assert [s.name for s in await reader.playlist_stats("Epic songs ")] == ["Time"]
+    assert [s.name for s in await reader.playlist_stats("epic songs")] == ["Time"]
+    assert [s.name for s in await reader.playlist_stats("Cafe\u0301 Focus")] == ["Time"]  # NFD vs NFC
+    assert reader.calls[-1] == ["stats", "Café  Focus"]  # type: ignore[attr-defined]
+
+
+async def test_reader_reports_playlists_missing_from_the_music_app():
+    # Seen live: catalog playlists added to the library ("Brown Noise") are not user playlists.
+    reader = music_app_with({"Workout": []})
+    with pytest.raises(PlaylistNotInMusicApp, match="Brown Noise"):
+        await reader.playlist_stats("Brown Noise")
+    assert reader.calls == [["names"]]  # type: ignore[attr-defined]
 
 
 async def test_plan_with_play_data_suggests_least_played_and_never_touches_main(app, fake_apple):
