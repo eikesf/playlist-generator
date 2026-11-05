@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "apple-music-mcp"
+version = "0.1.0"
+description = "MCP server that lets Claude curate playlists and create them directly in Apple Music, using the web-player session (no paid developer account)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Eike Scudellari Franco" }]
+dependencies = [
+  "mcp>=2.3,<3",
+  "httpx>=0.27,<1",
+  "rapidfuzz>=3.6,<4",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.44"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5"]
+
+[project.scripts]
+apple-music-mcp = "apple_music_mcp.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apple_music_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
