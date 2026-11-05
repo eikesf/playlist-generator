@@ -94,7 +94,7 @@ async def _bpm(app: AppContainer) -> str:
         raise AppleMusicError("no BPM provider enabled")
     parts = []
     for provider in app.bpm.providers:
-        match = await provider.lookup("Charlotte de Witte", "Doppler")
+        match = await provider.lookup("Eric Prydz", "Opus")  # analysed in Deezer (126 BPM)
         parts.append(f"{provider.name}: {match.bpm:.0f} BPM" if match else f"{provider.name}: not found")
     if all("not found" in p for p in parts):
         raise AppleMusicError("; ".join(parts) + " (Claude's estimates will be used)")

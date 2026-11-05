@@ -190,10 +190,8 @@ class FakeAppleMusic:
         path = request.url.path
         if path == "/search":
             q = parse_qs(urlparse(str(request.url)).query).get("q", [""])[0]
-            m = re.match(r'artist:"(.*)" track:"(.*)"', q)
-            if not m:
-                return httpx.Response(200, json={"error": {"type": "DataException", "code": 800}})
-            found = self._match_query(m.group(1), m.group(2))
+            # Like the live API: the advanced artist:/track: syntax matches nothing.
+            found = [] if re.search(r'\w+:"', q) else self.search(q, 5)
             data = [{"id": int(f"7{s.id}"), "title": s.name, "artist": {"name": s.artist}} for s in found]
             return httpx.Response(200, json={"data": data, "total": len(data)})
         m = re.fullmatch(r"/track/7(\d+)", path)
