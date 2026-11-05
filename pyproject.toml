@@ -37,3 +37,6 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skill/playlist-curator/SKILL.md" = "apple_music_mcp/skill/SKILL.md"
