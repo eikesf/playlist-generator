@@ -1,0 +1,47 @@
+name: Bug
+description: Something does not work as expected
+title: "fix: "
+labels: ["type: bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Tool or CLI command used, inputs, and where it ran (Claude Desktop, Dispatch, scheduled job).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / doctor output
+      description: Paste `apple-music-mcp doctor` output or log lines. **Remove tokens, cookies and ntfy topics before pasting.**
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `apple-music-mcp --version`
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Apple API client
+        - Playlist rules / curation
+        - Persistence / migrations
+        - Scheduled jobs / monitoring
+        - MCP tools / skill
+        - CLI / install
+        - Other
