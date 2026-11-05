@@ -13,6 +13,8 @@ from .apple.library import LibraryService
 from .apple.taste import TasteService
 from .apple.tokens import DeveloperTokenProvider, TokenScraper, scrape_developer_token
 from .apple.transport import AmpTransport
+from .bpm.providers import BpmProvider, DeezerProvider, GetSongBpmProvider
+from .bpm.service import BpmService
 from .config import Credentials, CredentialStore, StateStore
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
@@ -30,6 +32,7 @@ class AppContainer:
         retry: RetryPolicy | None = None,
         sleep: Sleep = asyncio.sleep,
         token_scraper: TokenScraper = scrape_developer_token,
+        use_deezer: bool = True,
     ):
         self.store = store or CredentialStore()
         self.state = state or StateStore()
@@ -46,6 +49,14 @@ class AppContainer:
         self.editor = PlaylistEditor(self.library, self.state)
         self.taste = TasteService(self.transport, self.state)
         self.discovery = DiscoveryService(self.catalog, self.taste)
+        providers: list[BpmProvider] = []
+        if self.credentials.getsongbpm_api_key:
+            providers.append(
+                GetSongBpmProvider(self._http, self.credentials.getsongbpm_api_key, retry=retry, sleep=sleep)
+            )
+        if use_deezer:
+            providers.append(DeezerProvider(self._http, retry=retry, sleep=sleep))
+        self.bpm = BpmService(providers, self.state)
 
     def storefront(self) -> str:
         return self.credentials.storefront

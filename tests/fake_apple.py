@@ -127,6 +127,10 @@ class FakeAppleMusic:
         default_factory=lambda: {"a1": ["a2", "a4", "a5"], "a2": ["a1", "a3"], "a3": ["a2"], "a4": ["a1"]}
     )
     heavy_rotation: bool = True
+    deezer_bpm: dict[str, float] = field(default_factory=dict)  # catalog id -> bpm (0 = not analysed)
+    getsongbpm_tempo: dict[str, str] = field(default_factory=dict)  # catalog id -> tempo string
+    getsongbpm_key: str = "test-getsongbpm-key"
+    external_calls: list[str] = field(default_factory=list)
     _adds: int = 0
     _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
 
@@ -152,6 +156,8 @@ class FakeAppleMusic:
         router.get(url__regex=r"https://music\.apple\.com/assets/.*\.js$").mock(side_effect=self._bundle)
         router.get(url__startswith="https://itunes.apple.com/search").mock(side_effect=self._itunes)
         router.route(url__startswith=AMP).mock(side_effect=self._amp)
+        router.get(url__startswith="https://api.deezer.com/").mock(side_effect=self._deezer)
+        router.get(url__startswith="https://api.getsong.co/").mock(side_effect=self._getsong)
         return self
 
     # ---------------------------------------------------------------- web player
@@ -174,6 +180,52 @@ class FakeAppleMusic:
         limit = int(q.get("limit", ["10"])[0])
         results = [s.itunes(self.storefront) for s in self.search(term, limit)]
         return httpx.Response(200, json={"resultCount": len(results), "results": results})
+
+    # ---------------------------------------------------------- BPM databases
+    def _match_query(self, artist: str, title: str) -> list[FakeSong]:
+        return [s for s in self.search(f"{artist} {title}", 5) if normalize(artist) in normalize(s.artist)]
+
+    def _deezer(self, request: httpx.Request) -> httpx.Response:
+        self.external_calls.append(str(request.url))
+        path = request.url.path
+        if path == "/search":
+            q = parse_qs(urlparse(str(request.url)).query).get("q", [""])[0]
+            m = re.match(r'artist:"(.*)" track:"(.*)"', q)
+            if not m:
+                return httpx.Response(200, json={"error": {"type": "DataException", "code": 800}})
+            found = self._match_query(m.group(1), m.group(2))
+            data = [{"id": int(f"7{s.id}"), "title": s.name, "artist": {"name": s.artist}} for s in found]
+            return httpx.Response(200, json={"data": data, "total": len(data)})
+        m = re.fullmatch(r"/track/7(\d+)", path)
+        if m:
+            sid = m.group(1)
+            song = self.songs_by_id[sid]
+            return httpx.Response(
+                200, json={"id": int(f"7{sid}"), "title": song.name, "bpm": self.deezer_bpm.get(sid, 0)}
+            )
+        return httpx.Response(
+            200, json={"error": {"type": "DataException", "code": 800, "message": "no data"}}
+        )
+
+    def _getsong(self, request: httpx.Request) -> httpx.Response:
+        self.external_calls.append(str(request.url))
+        q = parse_qs(urlparse(str(request.url)).query)
+        if q.get("api_key", [""])[0] != self.getsongbpm_key:
+            return httpx.Response(401, json={"error": "invalid api key"})
+        lookup = q.get("lookup", [""])[0]
+        m = re.match(r"song:(.*) artist:(.*)", lookup)
+        found = self._match_query(m.group(2), m.group(1)) if m else []
+        results = [
+            {
+                "id": f"g{s.id}",
+                "title": s.name,
+                "tempo": self.getsongbpm_tempo[s.id],
+                "artist": {"name": s.artist},
+            }
+            for s in found
+            if s.id in self.getsongbpm_tempo
+        ]
+        return httpx.Response(200, json={"search": results or {"error": "no result"}})
 
     # ------------------------------------------------------------------- amp-api
     def _amp(self, request: httpx.Request) -> httpx.Response:

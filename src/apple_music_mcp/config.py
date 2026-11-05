@@ -23,6 +23,7 @@ ENV_CONFIG_DIR = "APPLE_MUSIC_MCP_CONFIG_DIR"
 ENV_USER_TOKEN = "APPLE_MUSIC_USER_TOKEN"
 ENV_DEVELOPER_TOKEN = "APPLE_MUSIC_DEVELOPER_TOKEN"
 ENV_STOREFRONT = "APPLE_MUSIC_STOREFRONT"
+ENV_GETSONGBPM_KEY = "GETSONGBPM_API_KEY"
 
 DEFAULT_STOREFRONT = "br"
 CREDENTIALS_FILE = "credentials.json"
@@ -74,6 +75,7 @@ class Credentials:
     developer_token: str | None = None
     storefront: str = DEFAULT_STOREFRONT
     saved_at: float = field(default_factory=time.time)
+    getsongbpm_api_key: str | None = None
 
     @property
     def developer_token_expires_at(self) -> int | None:
@@ -92,6 +94,7 @@ class Credentials:
             "developer_token": mask(self.developer_token),
             "developer_token_expires_at": exp,
             "storefront": self.storefront,
+            "getsongbpm_api_key": mask(self.getsongbpm_api_key) if self.getsongbpm_api_key else None,
         }
 
 
@@ -110,6 +113,7 @@ def load_credentials(path: Path | None = None) -> Credentials:
                 developer_token=raw.get("developer_token") or None,
                 storefront=(raw.get("storefront") or DEFAULT_STOREFRONT).lower(),
                 saved_at=float(raw.get("saved_at") or time.time()),
+                getsongbpm_api_key=raw.get("getsongbpm_api_key") or None,
             )
     if os.environ.get(ENV_USER_TOKEN):
         creds.media_user_token = os.environ[ENV_USER_TOKEN].strip()
@@ -117,6 +121,8 @@ def load_credentials(path: Path | None = None) -> Credentials:
         creds.developer_token = os.environ[ENV_DEVELOPER_TOKEN].strip()
     if os.environ.get(ENV_STOREFRONT):
         creds.storefront = os.environ[ENV_STOREFRONT].strip().lower()
+    if os.environ.get(ENV_GETSONGBPM_KEY):
+        creds.getsongbpm_api_key = os.environ[ENV_GETSONGBPM_KEY].strip()
     return creds
 
 

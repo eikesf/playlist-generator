@@ -32,6 +32,7 @@ EXPECTED_TOOLS = {
     "my_taste_profile",
     "similar_artists",
     "discover_tracks",
+    "lookup_bpm",
 }
 
 

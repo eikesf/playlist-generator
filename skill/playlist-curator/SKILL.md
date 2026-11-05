@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -63,12 +63,13 @@ If the purpose is unclear, call `list_playlist_profiles` and pick the closest on
 
 ## 5. Sequence
 
-The catalog has no BPM or energy data. For every verified track, estimate:
-- `bpm`: your best estimate of the track's tempo,
-- `energy`: 1 (calm, sparse) to 10 (peak, hardest, biggest drop), relative to the purpose,
+The Apple catalog has no BPM or energy data. For every verified track, give:
+- `title` and `artist`: always, so the real BPM can be looked up,
+- `bpm`: your best estimate (used only if no database has the track),
+- `energy`: 1 (calm, sparse) to 10 (peak, hardest, biggest drop), relative to the purpose. This is always your judgement,
 - optionally `act` to pin a track into an act (e.g. the closing track into "Cooldown").
 
-Call `order_tracks` with the purpose and the tracks (id, artist, title, bpm, energy). It returns `song_ids_in_order` following the plan's energy curve, with smooth BPM steps, no same artist back to back and pinned acts respected. Read its `warnings`. If it reports big BPM jumps or artist repeats, swap a track and call it again. Do not reorder by hand afterwards. Say the BPM and energy are estimates if he asks.
+Call `order_tracks` with the purpose and the tracks. It first looks up **measured BPM** in public databases (GetSongBPM if a key is configured, then Deezer) and replaces your estimate where found, correcting half/double time. Each track reports `bpm_source` (a database name or `estimate`). Then it returns `song_ids_in_order` following the plan's energy curve, with smooth BPM steps, no same artist back to back and pinned acts respected. Read its `warnings`. If it reports big BPM jumps or artist repeats, swap a track and call it again. Do not reorder by hand afterwards. If he asks about tempo, say which values were measured and which estimated. `lookup_bpm` checks tempos on their own.
 
 ## 6. Create in Apple Music
 

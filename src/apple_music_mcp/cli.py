@@ -6,6 +6,7 @@ Subcommands:
   status           show stored credentials (masked)
   doctor           live end-to-end checks against Apple Music (--write also creates a test playlist)
   install-claude   register the server in Claude Desktop (and print the Claude Code command)
+  set-bpm-key      store a free GetSongBPM API key (better BPM data; optional)
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="live checks against Apple Music")
     doctor.add_argument("--write", action="store_true", help="also create (and delete) a test playlist")
     sub.add_parser("install-claude", help="register the MCP server in Claude Desktop / Claude Code")
+    bpm = sub.add_parser("set-bpm-key", help="store a GetSongBPM API key (getsongbpm.com/api)")
+    bpm.add_argument("--key", help="the key (otherwise prompted, hidden); empty string removes it")
     return parser
 
 
@@ -60,6 +63,16 @@ def main(argv: list[str] | None = None) -> int:
         from .commands.doctor import run_doctor
 
         return asyncio.run(run_doctor(args.write))
+    if args.command == "set-bpm-key":
+        import getpass
+
+        store = CredentialStore()
+        creds = store.load()
+        key = args.key if args.key is not None else getpass.getpass("GetSongBPM API key (hidden): ")
+        creds.getsongbpm_api_key = key.strip() or None
+        store.save(creds)
+        print("GetSongBPM key " + ("saved." if creds.getsongbpm_api_key else "removed."))
+        return 0
     if args.command == "install-claude":
         from .commands.install import run_install_claude
 
