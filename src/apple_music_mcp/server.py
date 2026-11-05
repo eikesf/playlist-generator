@@ -12,10 +12,10 @@ from .tools.base import ContainerFactory, ContainerProvider
 
 INSTRUCTIONS = """\
 Apple Music tools for curating playlists and creating them directly in the user's library.
-Typical flow: (1) propose tracks, (2) verify them with `resolve_tracks` (batch, one line per track,
-format "Artist1, Artist2 - Title (Remix)"), (3) order them, (4) `create_playlist` with the
-`song_ids_in_order` (or pass `tracks` and it resolves for you). Never invent catalog ids. If a tool
-reports an auth problem, tell the user to run `apple-music-mcp login` on their Mac.
+Flow: (1) `plan_playlist` for the purpose (study, workout, dj_set, party...) and duration,
+(2) propose tracks per act and verify them with `resolve_tracks`, (3) estimate BPM/energy per track
+and sequence with `order_tracks`, (4) `create_playlist` with `song_ids_in_order`.
+Never invent catalog ids. On an AUTH error, tell the user to run `apple-music-mcp login` on their Mac.
 """
 
 DEFAULT_EXPORT_DIR = Path.home() / "Music" / "Playlist Curator"
