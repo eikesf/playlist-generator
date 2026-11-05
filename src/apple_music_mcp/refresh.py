@@ -85,7 +85,7 @@ class RefreshService:
         removal = [
             {"id": TrackRef.of(e).id, "track": _label(e), "reason": "disliked"}
             for e in entries
-            if ratings.get(e.catalog_id or "") == -1 or (st(e) and st(e).disliked)
+            if ratings.get(e.catalog_id or "") == -1 or ((s := st(e)) is not None and s.disliked)
         ]
         removal_ids = {r["id"] for r in removal}
 
@@ -94,13 +94,13 @@ class RefreshService:
         if stats:
             cutoff = datetime.now() - timedelta(days=settings.min_days_in_playlist)
             eligible = [
-                (e, st(e))
+                (e, s)
                 for e in entries
-                if st(e)
+                if (s := st(e)) is not None
                 and TrackRef.of(e).id not in removal_ids
-                and not st(e).favorited
+                and not s.favorited
                 and ratings.get(e.catalog_id or "") != 1
-                and (st(e).date_added is None or st(e).date_added <= cutoff)
+                and (s.date_added is None or s.date_added <= cutoff)
             ]
             plays = sorted({s.played for _, s in eligible})
             if len(plays) > 1:  # play counts actually distinguish tracks

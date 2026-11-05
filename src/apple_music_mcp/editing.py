@@ -86,7 +86,8 @@ def dedupe(refs: list[TrackRef]) -> list[TrackRef]:
 
 async def add_refs(library: LibraryService, playlist_id: str, refs: list[TrackRef]) -> int:
     """Append refs preserving order, batching consecutive refs of the same kind."""
-    added, batch = 0, []
+    added = 0
+    batch: list[TrackRef] = []
     for ref in refs:
         if batch and ref.kind != batch[0].kind:
             added += await library.add_tracks(playlist_id, [r.id for r in batch], batch[0].kind)

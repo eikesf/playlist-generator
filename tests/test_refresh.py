@@ -47,6 +47,7 @@ async def _main_playlist(app, name="Warehouse"):
 def test_parse_stats():
     line = SEP.join(["Doppler", "Charlotte de Witte", "12", "1", "true", "false", "2026-01-02T03:04:05"])
     [s] = parse_stats(line + "\n" + "garbage line\n")
+    assert s.date_added is not None
     assert (s.played, s.skipped, s.favorited, s.date_added.year) == (12, 1, True, 2026)
 
 

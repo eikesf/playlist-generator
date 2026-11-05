@@ -6,7 +6,7 @@ from mcp import Client
 from apple_music_mcp.config import Credentials
 from apple_music_mcp.server import build_server
 
-from .conftest import build_app
+from .conftest import build_app, result_text
 
 EXPECTED_TOOLS = {
     "auth_status",
@@ -159,7 +159,7 @@ async def test_editing_tools_via_mcp(server_factory, fake_apple):
         bad = await c.call_tool(
             "reorder_playlist", {"playlist_id": pid, "song_ids_in_order": ["4001", "2001"]}
         )
-        assert bad.is_error and "same tracks" in bad.content[0].text
+        assert bad.is_error and "same tracks" in result_text(bad)
 
         ok = await c.call_tool(
             "reorder_playlist", {"playlist_id": pid, "song_ids_in_order": ["4001", "1001"]}
