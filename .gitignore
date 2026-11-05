@@ -1,10 +1,41 @@
+# --- Python / tooling -------------------------------------------------------
 .venv/
+venv/
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 dist/
 build/
 *.egg-info/
-.coverage
+
+# --- Secrets: never commit these ---------------------------------------------
+# Environment files (only the documented template is versioned)
+.env
+.env.*
+!.env.example
+*.env
+# Apple Music credentials written by `apple-music-mcp login`
 credentials.json
+credentials.tmp
+**/apple-music-mcp/
+# Playwright browser profile used by `login --browser` (contains session cookies)
+browser-profile/
+# Keys, certificates, tokens
+*.p8
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*token*.txt
+secrets/
+# Local Claude Desktop config copies / backups
+claude_desktop_config*.json*
+
+# --- Local outputs --------------------------------------------------------------
+exports/
+*.log
+.DS_Store
