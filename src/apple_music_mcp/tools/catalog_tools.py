@@ -11,6 +11,22 @@ from ..curation.familiarity import MixTargets
 from ..resolver import resolve_tracks
 from .base import ContainerProvider, tool_errors
 
+DEVELOPER_TOKEN_NOTE = (
+    "The developer token renews itself: it is re-read from music.apple.com when it expires or Apple "
+    "rejects it. Its expiry date needs no action from the user."
+)
+
+
+def _status_notes(bpm_sources: list[str]) -> dict[str, str]:
+    if bpm_sources:
+        bpm = (
+            f"Measured BPM works through: {', '.join(bpm_sources)}. The GetSongBPM key is optional; "
+            "Deezer needs no key."
+        )
+    else:
+        bpm = "No measured BPM source is configured; BPM is estimated from genre and purpose."
+    return {"developer_token": DEVELOPER_TOKEN_NOTE, "bpm": bpm}
+
 
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     @mcp.tool()
@@ -25,6 +41,7 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             "credentials": app.credentials.redacted(),
             "catalog_search": False,
             "ready_to_create_playlists": False,
+            "notes": _status_notes(app.bpm.available),
         }
         try:
             await app.tokens.get()

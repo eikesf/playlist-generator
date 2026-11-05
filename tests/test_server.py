@@ -67,6 +67,10 @@ async def test_auth_status_ready(server_factory):
     assert data["ready_to_create_playlists"] is True
     assert data["account_storefront"] == "br"
     assert "valid-media-user-token" not in str(data)  # secrets are masked
+    # Seen live: without these notes Claude told the owner the developer token had to be regenerated
+    # by hand and that BPM would not work without a GetSongBPM key.
+    assert "renews itself" in data["notes"]["developer_token"]
+    assert "deezer" in data["notes"]["bpm"]
 
 
 async def test_auth_status_without_user_token_explains_next_step(server_factory):
