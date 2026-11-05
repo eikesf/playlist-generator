@@ -114,9 +114,9 @@ class DeezerProvider(_HttpProvider):
     name = "deezer"
 
     async def lookup(self, artist: str, title: str) -> BpmMatch | None:
-        data = await self._get(
-            f"{DEEZER_BASE}/search", {"q": f'artist:"{artist}" track:"{title}"', "limit": 5}
-        )
+        # Plain query: the advanced `artist:"…" track:"…"` syntax returns no results (live, Nov 2026).
+        # `_best` does the artist/title matching instead.
+        data = await self._get(f"{DEEZER_BASE}/search", {"q": f"{artist} {title}", "limit": 5})
         if not isinstance(data, dict) or "error" in data:
             return None
         candidates = [
