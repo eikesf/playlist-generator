@@ -50,7 +50,7 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 - **Verifies every track** against the Apple Music catalog for your storefront. Fuzzy matching handles accents, "feat.", collabs and remixes. It rejects karaoke, live and cover versions and the wrong remixer, removes radio-edit duplicates, and reports what isn't available instead of guessing.
 - **Sequences like a DJ.** Claude estimates BPM and energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
-- **Edits existing playlists**: add tracks and re-sequence the whole set, reorder, remove, rename. Edits are verified by reading the playlist back.
+- **Edits existing playlists without breaking the vibe.** New tracks are **inserted exactly where they fit**: the existing order stays untouched and each new track goes into the slot that best matches the energy curve, BPM flow and artist spacing. Removing a track keeps everything else in order. You can also reorder, rename or fully re-sequence on request. Edits are verified by reading the playlist back.
 - **Has fallbacks.** If the catalog API is unavailable, search falls back to the public iTunes Search API. If you're logged out, it can export a `.txt` file for Tune My Music.
 - **Diagnoses itself.** `apple-music-mcp doctor --write` tests the whole chain live: token, search, account, create, reorder, delete.
 
@@ -139,7 +139,7 @@ Example requests:
 - *"Playlist de 1h30 para estudar, instrumental, estilo trilha sonora e ambient."*
 - *"Treino de 60 minutos, techno pesado, quero energia alta o tempo todo."*
 - *"Set de 2 horas de melodic techno estilo Afterlife, crescendo até um pico e fechando emocional."*
-- *"Adiciona essas 5 músicas na minha playlist 'Warehouse Ascension' e reorganiza o set."*
+- *"Adiciona essas 5 músicas na minha playlist 'Warehouse Ascension' nos lugares certos."* Each one is inserted where it fits, and nothing else moves.
 - *"Tira as faixas do Boris Brejcha e reordena."*
 
 What you get back: the playlist link, the tracks grouped by act with durations, the purpose profile used, a decisive name with two alternatives, descriptions ready to paste, and honest notes about artists with too few tracks or tracks that weren't in the catalog.
@@ -157,7 +157,8 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `order_tracks` | Sequences verified tracks along the purpose's energy curve using estimated BPM/energy |
 | `create_playlist` | Creates a library playlist from ordered ids or free-text lines (`dry_run` available) |
 | `add_tracks_to_playlist` | Appends tracks |
-| `resequence_playlist` | Takes the final set (kept + new tracks with estimates), orders it and syncs the playlist (adds, removes, reorders) |
+| `insert_tracks_into_playlist` | **Adds tracks to an existing playlist, each at the position where it fits, keeping the current order intact** |
+| `resequence_playlist` | Reshuffles the whole playlist from scratch along the energy curve (only when you ask for it) |
 | `reorder_playlist` | Same tracks, new order |
 | `sync_playlist` | Makes a playlist match an exact ordered list |
 | `remove_tracks_from_playlist` | Removes tracks and keeps the rest in order |
@@ -210,7 +211,7 @@ src/apple_music_mcp/
 └── browser_login.py          optional Playwright token capture
 skill/playlist-curator/       the Claude skill (+ zip for upload)
 docs/adr/                     architecture decision records
-tests/                        110+ tests, including a stateful fake Apple API
+tests/                        120+ tests, including a stateful fake Apple API
 ```
 
 **SOLID in practice**
@@ -251,7 +252,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
   - MCP protocol tests (an in-process client, plus a **real stdio subprocess** with the legacy `initialize` handshake that Claude Desktop uses)
   - **end-to-end simulations** of whole sessions (plan → resolve → order → create → read back, and create → resequence → remove → rename)
 - **Live checks**: `apple-music-mcp doctor --write` on your Mac.
-- `uv run pytest -q` runs 110+ tests in about 4 seconds, offline.
+- `uv run pytest -q` runs 120+ tests in about 6 seconds, offline.
 
 ## Limitations
 
@@ -299,10 +300,11 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #17 | #12 | Purpose-driven curation engine: profiles, plan, sequencing |
 | #18 | #13 | Edit existing playlists: reorder, sync, remove, resequence, rename |
 | #19 | #14 | This README and the ADRs |
+| #21 | #20 | Insert new tracks at their best position without reshuffling the playlist |
 
 ## Guia rápido (pt-BR)
 
-**O que é:** você pede uma playlist no Claude Desktop e ela aparece pronta no Apple Music. A ordem segue a finalidade da playlist: estudo, treino, corrida, festa, set de techno, relaxar ou explorar um gênero. Depois dá para pedir "adiciona essas músicas e reorganiza", e o set é reordenado sozinho no app.
+**O que é:** você pede uma playlist no Claude Desktop e ela aparece pronta no Apple Music. A ordem segue a finalidade da playlist: estudo, treino, corrida, festa, set de techno, relaxar ou explorar um gênero. Depois dá para pedir "adiciona essas músicas": cada uma entra na posição certa para manter a vibe, sem mexer na ordem das outras. Remover também mantém a ordem do resto.
 
 **Instalação no Mac (uns 10 minutos):**
 1. `brew install uv`

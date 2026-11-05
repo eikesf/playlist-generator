@@ -12,6 +12,9 @@ Playlists evolve. Tracks get added, some get dropped, and the set must be re-seq
 
 The editor reads the playlist back to report `verified_order`. It remembers the working strategy in `~/.config/apple-music-mcp/state.json`. `LibraryService.remove_entry` tries both removal shapes and remembers the accepted one. The MCP tools on top are `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist` (order engine + sync) and `rename_playlist`.
 
+### Adding tracks: insert, don't reshuffle
+Adding tracks must not disturb a playlist the user already likes. `Sequencer.insert` keeps the existing order fixed. It places new tracks one at a time, always taking the (track, slot) pair with the smallest cost increase on the same cost function as `order_tracks`: energy curve, BPM steps, energy jumps, artist spacing and pinned acts. The result is synced in place. Only the tail after the first insertion point is rewritten, and an insertion near the end touches only a few tracks. The tool is `insert_tracks_into_playlist`. `resequence_playlist` (full reshuffle) is reserved for explicit requests.
+
 ## Consequences
 - The user never reorders by hand. Edits land in the Music app on the Mac and iPhone.
 - Which strategy an account accepts is only known live. `doctor --write` tests a reorder and reports it.
