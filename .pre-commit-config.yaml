@@ -1,0 +1,18 @@
+# Optional: `uvx pre-commit install` to run these before every commit.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: secret-guard
+        name: secret guard (pytest)
+        entry: python -m pytest -q tests/test_secrets.py
+        language: system
+        pass_filenames: false
