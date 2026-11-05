@@ -7,12 +7,11 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
-from ..bpm.service import align_octave
-from ..container import AppContainer
 from ..curation.planner import plan_playlist as make_plan
 from ..curation.profiles import PROFILES, get_profile
 from ..curation.sequencer import TrackFeatures
 from ..curation.sequencer import order_tracks as sequence
+from ..operations import enrich_features
 from .base import ContainerProvider, tool_errors
 
 
@@ -28,35 +27,6 @@ class TrackInput(BaseModel):
         default=None, description="Optional; fetched from the catalog when missing"
     )
     act: str | None = Field(default=None, description="Optional: force into an act by name, e.g. 'Peak'")
-
-
-async def enrich_features(
-    app: AppContainer, features: list[TrackFeatures], use_measured_bpm: bool = True
-) -> None:
-    """Fill durations from the catalog and replace estimated BPM with measured BPM when found."""
-    await fill_durations(app, features)
-    if not use_measured_bpm or not app.bpm.providers:
-        return
-    lookups = [{"id": f.id, "artist": f.artist, "title": f.title} for f in features if f.artist and f.title]
-    measured = await app.bpm.lookup_many(lookups)
-    for f in features:
-        match = measured.get(f.id)
-        if match:
-            f.bpm = align_octave(match.bpm, f.bpm)
-            f.bpm_source = match.source
-
-
-async def fill_durations(app: AppContainer, features: list[TrackFeatures]) -> None:
-    """Fetch missing track durations from the catalog (best effort; timing only)."""
-    missing = [f.id for f in features if not f.duration_ms and not f.id.startswith("i.")]
-    if not missing:
-        return
-    try:
-        durations = {s.id: s.duration_ms for s in await app.catalog.get_songs(missing)}
-    except Exception:  # noqa: BLE001 - durations are a nice-to-have
-        return
-    for f in features:
-        f.duration_ms = f.duration_ms or durations.get(f.id)
 
 
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:

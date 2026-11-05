@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, so there is no Spotify and no Tune My Music in the normal flow. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `export_playlist_text`.
+Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `export_playlist_text`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -108,6 +108,24 @@ Every edit goes straight to his Apple Music library. Never ask him to drag track
    - `status: needs_decision` means Apple refused editing this playlist in place. Nothing was removed or reordered, and any new tracks were only appended at the end. **Never recreate on your own.** Show him `decision.changes`, the `manual_steps` (move X right after Y, remove Z) and the `recommendation`, then ask with AskUserQuestion: "Recriar a playlist (mesmo nome e ordem, link novo; a antiga é apagada)" or "Ajusto manualmente com os passos". For few changes (`size: small`), recommend manual. For many (`size: large`), recommend recreating. Only if he chooses to recreate, call the same tool again with `allow_rebuild: true` and give him the new link.
    - Pass on any `warnings` (for example tracks without estimates).
 
-## 9. Follow-up
+## 9. Refresh a playlist (weekly or on request)
 
-Offer a deeper second playlist focused on the artists he liked most after a week or two of listening, or an extension of this one using `resequence_playlist`.
+**Golden rule: never remove a track from the main playlist unless he named it or confirmed it.** He could lose a song he liked and not remember its name.
+
+1. Call `plan_playlist_refresh` with the playlist id. It never changes the main playlist. It:
+   - lists `rotation_candidates` (least played): only when his Mac's play counts can really tell them apart. Recent additions and favorites are never included,
+   - lists `removal_candidates` (tracks he marked "dislike"),
+   - adds new discoveries (similar artists he doesn't know yet) to the separate playlist "<name> · Descobertas",
+   - lists `promotion_candidates`: tracks in Descobertas he loved or played a lot.
+2. Show him, by name: the candidates to remove, with plays or the reason, the new tracks staged in Descobertas, and the promotion candidates. Ask with AskUserQuestion (multi-select) which ones to remove and which to promote. If `play_data` is false, say no rotation is suggested and that he can still ask for any track to be removed.
+3. Call `apply_playlist_refresh` with **only** what he confirmed:
+   - `remove_ids`: each track is first copied to "<name> · Arquivo" (so nothing is ever lost), then removed with the rest kept in order,
+   - `promote`: the tracks with estimated bpm/energy (plus `current_estimates` for the main playlist). Each is inserted at the position that fits the vibe and leaves Descobertas.
+   - On `needs_decision`, follow section 8 (ask before recreating).
+4. Report what moved where and remind him that the Arquivo keeps everything that left.
+
+He can schedule this on the Mac: `apple-music-mcp schedule-refresh --playlist "<name>"` runs the read-only plan weekly, fills Descobertas and shows a notification. The decision always comes back to a conversation.
+
+## 10. Follow-up
+
+Offer a deeper second playlist focused on the artists he liked most after a week or two of listening, or a refresh as above.

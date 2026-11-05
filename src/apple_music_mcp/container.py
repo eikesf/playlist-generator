@@ -18,6 +18,7 @@ from .bpm.service import BpmService
 from .config import Credentials, CredentialStore, StateStore
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
+from .local_music import MusicAppReader
 
 
 class AppContainer:
@@ -33,6 +34,7 @@ class AppContainer:
         sleep: Sleep = asyncio.sleep,
         token_scraper: TokenScraper = scrape_developer_token,
         use_deezer: bool = True,
+        music_app: MusicAppReader | None = None,
     ):
         self.store = store or CredentialStore()
         self.state = state or StateStore()
@@ -57,6 +59,7 @@ class AppContainer:
         if use_deezer:
             providers.append(DeezerProvider(self._http, retry=retry, sleep=sleep))
         self.bpm = BpmService(providers, self.state)
+        self.music_app = music_app or MusicAppReader()
 
     def storefront(self) -> str:
         return self.credentials.storefront
