@@ -146,7 +146,7 @@ class PlaylistEntry:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
+        data = {"id": self.reference[0], **asdict(self)}
         data["duration"] = format_duration(self.duration_ms)
         return data
 
