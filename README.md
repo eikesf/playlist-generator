@@ -1,5 +1,7 @@
 # playlist-generator · Apple Music playlist agent for Claude
 
+🇧🇷 [Leia em português](README.pt-BR.md)
+
 > *"Monta uma playlist de techno de 2 horas que vá crescendo como um set, com Charlotte de Witte e Amelie Lens."*
 > A few minutes later the playlist is in your Apple Music library, verified track by track and sequenced like a DJ set. You don't need Spotify, a file to import or a paid Apple developer account.
 
@@ -18,14 +20,14 @@ This project is a **Claude skill** plus a **local MCP server**. Together they tu
 7. [MCP tools reference](#mcp-tools-reference)
 8. [Tech stack and why](#tech-stack-and-why)
 9. [Architecture](#architecture)
-10. [Key decisions](#key-decisions)
-11. [Security and privacy](#security-and-privacy)
-12. [Testing strategy](#testing-strategy)
-13. [Limitations](#limitations)
-14. [Troubleshooting](#troubleshooting)
-15. [Development](#development)
-16. [Project history](#project-history)
-17. [Guia rápido (pt-BR)](#guia-rápido-pt-br)
+10. [Other streaming services (roadmap)](#other-streaming-services-roadmap)
+11. [Key decisions](#key-decisions)
+12. [Security and privacy](#security-and-privacy)
+13. [Testing strategy](#testing-strategy)
+14. [Limitations](#limitations)
+15. [Troubleshooting](#troubleshooting)
+16. [Development](#development)
+17. [Project history](#project-history)
 
 ---
 
@@ -135,6 +137,8 @@ apple-music-mcp install-claude    # registers the server in Claude Desktop (back
 
 **Claude Code** (optional): `install-claude` prints the `claude mcp add --scope user apple-music -- ...` command and copies the skill to `~/.claude/skills/`.
 
+**Updating after a `git pull`:** use `uv tool install --force --reinstall --no-cache .`. Without `--reinstall --no-cache`, uv reuses the cached build and the command keeps running the old code.
+
 ## Using it
 
 Example requests:
@@ -194,8 +198,8 @@ CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | in
 | **pydantic** (via the MCP SDK) | Typed, validated tool inputs (`TrackInput` with energy 1–10) |
 | **Playwright** (optional extra) | One-click token capture from a real browser window |
 | **uv · hatchling** | Install as a global CLI (`uv tool install .`); the skill ships inside the wheel |
-| **pytest · pytest-asyncio · respx · ruff** | Tests, async tests, HTTP fakes, lint/format |
-| **GitHub Actions** | CI on Ubuntu + macOS × Python 3.11 / 3.13 for every PR |
+| **pytest · pytest-asyncio · respx · ruff · mypy** | Tests, async tests, HTTP fakes, lint/format, type checking |
+| **GitHub Actions** | Every PR: lint, format, mypy and tests on Ubuntu × Python 3.11 / 3.13. macOS tests after each merge |
 
 ## Architecture
 
@@ -226,7 +230,7 @@ src/apple_music_mcp/
 └── browser_login.py          optional Playwright token capture
 skill/playlist-curator/       the Claude skill (+ zip for upload)
 docs/adr/                     architecture decision records
-tests/                        160+ tests, including a stateful fake Apple API
+tests/                        170+ tests, including a stateful fake Apple API
 ```
 
 **SOLID in practice**
@@ -273,7 +277,7 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
   - MCP protocol tests (an in-process client, plus a **real stdio subprocess** with the legacy `initialize` handshake that Claude Desktop uses)
   - **end-to-end simulations** of whole sessions (plan → resolve → order → create → read back, and create → resequence → remove → rename)
 - **Live checks**: `apple-music-mcp doctor --write` on your Mac.
-- `uv run pytest -q` runs 160+ tests in about 8 seconds, offline.
+- `uv run pytest -q` runs 170+ tests in a few seconds, offline.
 
 ## Limitations
 
@@ -290,11 +294,12 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 | Symptom | Fix |
 |---|---|
 | `AUTH: Apple Music user token missing or expired` | `apple-music-mcp login` |
-| `Could not extract the Apple Music developer token` | Apple changed the web player. Copy the `Authorization: Bearer …` value from any `amp-api.music.apple.com` request in the browser devtools Network tab, set it as `APPLE_MUSIC_DEVELOPER_TOKEN` in the server's `env` in the Claude Desktop config, and open an issue |
+| `Could not extract the Apple Music developer token` | Run `uv run python scripts/diagnose_token.py` to see where the token lives in the web player (it prints only a prefix of each token). If Apple changed the site, copy the `Authorization: Bearer …` value from any `amp-api.music.apple.com` request in the browser devtools Network tab, set it as `APPLE_MUSIC_DEVELOPER_TOKEN` in the server's `env` in the Claude Desktop config, and open an issue |
 | Tools don't appear in Claude Desktop | Run `apple-music-mcp install-claude` again, quit with ⌘Q and reopen. Logs are in `~/Library/Logs/Claude/mcp*.log` |
 | Playlist not on the iPhone | Wait a few minutes and check that Sync Library is on |
 | An edit reports `needs_decision` | Your account refused in-place edits. Nothing was removed or moved. Claude shows the manual steps and asks whether to recreate the playlist (same name and order, new link) or let you adjust by hand |
 | A track is "not found" but exists | Check your storefront (`apple-music-mcp status`). Try `search_songs` with a shorter query |
+| The CLI behaves like an old version after an update | `uv tool install --force --reinstall --no-cache .` |
 
 ## Development
 
@@ -302,11 +307,12 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 uv venv && uv pip install -e ".[dev]"
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
+uv run mypy                       # type check (src, scripts, tests)
 python scripts/package_skill.py   # rebuild skill/playlist-curator.zip after editing SKILL.md
-uvx pre-commit install            # optional: gitleaks + ruff + secret guard before each commit
+uvx pre-commit install            # optional: gitleaks + ruff + mypy + secret guard before each commit
 ```
 
-Contributions: open an issue first, keep PRs small, and add tests against the fake for any new endpoint. Never commit credentials (CI will refuse).
+Contributions: open an issue first, branch from `develop`, keep PRs small, and add tests against the fake for any new endpoint. Never commit credentials (CI will refuse). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project history
 
@@ -328,20 +334,12 @@ Contributions: open an issue first, keep PRs small, and add tests against the fa
 | #29 | #25 | Weekly refresh: staging playlist, archive-before-remove, promote what you like |
 | #31 | #30 | Familiarity mix: separate % of known songs and known artists |
 | #33 | #32 | Apple Music only: no export/Tune My Music fallback; pending playlists after expired login |
-
-## Guia rápido (pt-BR)
-
-**O que é:** você pede uma playlist no Claude Desktop e ela aparece pronta no Apple Music. A ordem segue a finalidade da playlist: estudo, treino, corrida, festa, set de techno, relaxar ou explorar um gênero. Depois dá para pedir "adiciona essas músicas": cada uma entra na posição certa para manter a vibe, sem mexer na ordem das outras. Remover também mantém a ordem do resto.
-
-**Instalação no Mac (uns 10 minutos):**
-1. `brew install uv`
-2. `git clone https://github.com/eikesf/playlist-generator.git && cd playlist-generator && uv tool install .`
-3. `apple-music-mcp login` e cole o cookie `media-user-token` do music.apple.com (o comando mostra o passo a passo no Safari e no Chrome).
-4. `apple-music-mcp doctor --write`. Todos os itens precisam aparecer como `[ok]`. Esse comando cria, reordena e apaga uma playlist de teste.
-5. `apple-music-mcp install-claude` e reinicie o Claude Desktop (⌘Q).
-6. Suba `skill/playlist-curator.zip` em Configurações → Capabilities → Skills e remova a skill antiga.
-
-**Importante:** a API usada não é oficial (é a do site music.apple.com). Ela é gratuita, mas pode mudar sem aviso. O seu token fica só no seu Mac, com permissão 600, e nunca vai para o repositório.
+| #36 | — | Recently played paged by 10; `doctor` validates unverified endpoints |
+| #37 | — | Phase 0 audit, risk assessment, decision record, validation runbook |
+| #38 | — | Developer-token discovery fixed for the current web player (verified live) |
+| #39 | — | Deezer BPM lookup fixed (plain search query) |
+| #40 | — | `CLAUDE.md` and `uv.lock` |
+| #41 | — | mypy and `ruff format --check` in CI |
 
 ## License
 
