@@ -20,8 +20,9 @@ DEVELOPER_TOKEN_NOTE = (
 def _status_notes(bpm_sources: list[str]) -> dict[str, str]:
     if bpm_sources:
         bpm = (
-            f"Measured BPM works through: {', '.join(bpm_sources)}. The GetSongBPM key is optional; "
-            "Deezer needs no key."
+            f"Measured BPM works through: {', '.join(bpm_sources)}. The GetSongBPM key is optional "
+            "(Deezer needs no key); to add one, the user runs `apple-music-mcp set-bpm-key` in Terminal. "
+            "Never ask the user to edit credentials.json or paste a key in chat."
         )
     else:
         bpm = "No measured BPM source is configured; BPM is estimated from genre and purpose."

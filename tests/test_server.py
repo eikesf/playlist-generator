@@ -71,6 +71,7 @@ async def test_auth_status_ready(server_factory):
     # by hand and that BPM would not work without a GetSongBPM key.
     assert "renews itself" in data["notes"]["developer_token"]
     assert "deezer" in data["notes"]["bpm"]
+    assert "set-bpm-key" in data["notes"]["bpm"]
 
 
 async def test_auth_status_without_user_token_explains_next_step(server_factory):
