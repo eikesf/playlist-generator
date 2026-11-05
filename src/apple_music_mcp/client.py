@@ -14,13 +14,14 @@ from typing import Any
 import httpx
 
 from .config import Credentials, load_credentials, save_credentials
-from .models import Artist, Song
+from .models import Artist, Playlist, Song
 from .tokens import BROWSER_UA, TokenScrapeError, scrape_developer_token
 
 AMP_BASE = "https://amp-api.music.apple.com"
 ITUNES_SEARCH = "https://itunes.apple.com/search"
 MAX_SEARCH_LIMIT = 25
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+ADD_TRACKS_CHUNK = 100
 
 
 class AppleMusicError(RuntimeError):
@@ -226,6 +227,69 @@ class AppleMusicClient:
         if not items:
             raise AppleMusicError("Apple Music returned no storefront for this account")
         return str(items[0].get("id"))
+
+    # ----------------------------------------------------------------- library
+    async def list_playlists(self, limit: int = 100) -> list[Playlist]:
+        playlists: list[Playlist] = []
+        path: str | None = "/v1/me/library/playlists"
+        params: dict[str, Any] | None = {"limit": 100}
+        while path and len(playlists) < limit:
+            data = await self.request("GET", path, params=params, user=True) or {}
+            playlists.extend(Playlist.from_amp(item) for item in data.get("data", []))
+            path, params = data.get("next"), None
+        return playlists[:limit]
+
+    async def create_playlist(self, name: str, description: str | None = None) -> Playlist:
+        attributes: dict[str, Any] = {"name": name}
+        if description:
+            attributes["description"] = description
+        data = await self.request(
+            "POST",
+            "/v1/me/library/playlists",
+            json={"attributes": attributes, "relationships": {"tracks": {"data": []}}},
+            user=True,
+        )
+        items = (data or {}).get("data") or []
+        if not items:
+            raise AppleMusicError("Apple Music did not return the created playlist")
+        return Playlist.from_amp(items[0])
+
+    async def add_tracks(self, playlist_id: str, song_ids: list[str]) -> int:
+        """Append catalog songs in order, in chunks. Returns how many were sent."""
+        sent = 0
+        for i in range(0, len(song_ids), ADD_TRACKS_CHUNK):
+            chunk = song_ids[i : i + ADD_TRACKS_CHUNK]
+            await self.request(
+                "POST",
+                f"/v1/me/library/playlists/{playlist_id}/tracks",
+                json={"data": [{"id": sid, "type": "songs"} for sid in chunk]},
+                user=True,
+            )
+            sent += len(chunk)
+        return sent
+
+    async def playlist_tracks(self, playlist_id: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        path: str | None = f"/v1/me/library/playlists/{playlist_id}/tracks"
+        params: dict[str, Any] | None = {"limit": 100}
+        while path:
+            data = await self.request("GET", path, params=params, user=True) or {}
+            for item in data.get("data", []):
+                attrs = item.get("attributes") or {}
+                play = attrs.get("playParams") or {}
+                items.append(
+                    {
+                        "library_id": item.get("id"),
+                        "catalog_id": play.get("catalogId") or play.get("id"),
+                        "name": attrs.get("name"),
+                        "artist": attrs.get("artistName"),
+                    }
+                )
+            path, params = data.get("next"), None
+        return items
+
+    async def delete_playlist(self, playlist_id: str) -> None:
+        await self.request("DELETE", f"/v1/me/library/playlists/{playlist_id}", user=True)
 
 
 def _retry_delay(resp: httpx.Response, attempt: int) -> float:

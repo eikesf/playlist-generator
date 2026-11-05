@@ -240,6 +240,24 @@ class FakeAppleMusic:
             }
             return httpx.Response(201, json={"data": [self._playlist_resource(pid)]})
         m = re.fullmatch(r"/v1/me/library/playlists/([\w.]+)/tracks", path)
+        if m and request.method == "GET":
+            if m.group(1) not in self.playlists:
+                return httpx.Response(404, json={"errors": [{"status": "404"}]})
+            data = []
+            for n, sid in enumerate(self.playlists[m.group(1)]["tracks"]):
+                song = self.songs_by_id[sid]
+                data.append(
+                    {
+                        "id": f"i.LIB{n}",
+                        "type": "library-songs",
+                        "attributes": {
+                            "name": song.name,
+                            "artistName": song.artist,
+                            "playParams": {"id": f"i.LIB{n}", "kind": "song", "catalogId": sid},
+                        },
+                    }
+                )
+            return httpx.Response(200, json={"data": data})
         if m and request.method == "POST":
             pid = m.group(1)
             if pid not in self.playlists:
