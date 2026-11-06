@@ -9,6 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from ..curation.sequencer import TrackFeatures, order_tracks
 from ..operations import enrich_features, insert_into_playlist
+from ..sessions import sync_with_history
 from .base import ContainerProvider, tool_errors
 from .curation_tools import TrackInput
 
@@ -48,7 +49,9 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
         allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
         without that confirmation."""
-        return (await provider.get().editor.sync(playlist_id, song_ids_in_order, allow_rebuild)).to_dict()
+        return (
+            await sync_with_history(provider.get(), playlist_id, song_ids_in_order, allow_rebuild)
+        ).to_dict()
 
     @mcp.tool()
     @tool_errors
@@ -60,10 +63,10 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         `decision` (changes, manual_steps, recommendation) and ask: recreate the playlist (call again with
         allow_rebuild=true; old one deleted, link changes) or adjust by hand. Never pass allow_rebuild=true
         without that confirmation."""
-        editor = provider.get().editor
+        app = provider.get()
         drop = {str(i) for i in song_ids}
-        desired = [i for i in await editor.current_ids(playlist_id) if i not in drop]
-        return (await editor.sync(playlist_id, desired, allow_rebuild)).to_dict()
+        desired = [i for i in await app.editor.current_ids(playlist_id) if i not in drop]
+        return (await sync_with_history(app, playlist_id, desired, allow_rebuild)).to_dict()
 
     @mcp.tool()
     @tool_errors
@@ -82,7 +85,7 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         features = [TrackFeatures.from_dict(t.model_dump()) for t in tracks]
         await enrich_features(app, features)
         sequence = order_tracks(provider.get().profiles.get(purpose), features)
-        result = await app.editor.sync(playlist_id, sequence["song_ids_in_order"], allow_rebuild)
+        result = await sync_with_history(app, playlist_id, sequence["song_ids_in_order"], allow_rebuild)
         return {"edit": result.to_dict(), "sequence": sequence}
 
     @mcp.tool()

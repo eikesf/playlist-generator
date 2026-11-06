@@ -82,7 +82,9 @@ async def insert_into_playlist(
         plan["warnings"].append(f"Already in the playlist, moved to their best position: {already}")
     if not plan["inserted"]:
         return {"changed": False, "inserted": [], "warnings": plan["warnings"]}
-    result = await app.editor.sync(playlist_id, plan["song_ids_in_order"], allow_rebuild)
+    from .sessions import sync_with_history
+
+    result = await sync_with_history(app, playlist_id, plan["song_ids_in_order"], allow_rebuild)
     return {
         "edit": result.to_dict(),
         "inserted": plan["inserted"],
