@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 from rapidfuzz import fuzz
@@ -32,7 +33,7 @@ class CatalogService:
     def _path(self, suffix: str) -> str:
         return f"/v1/catalog/{self._storefront()}{suffix}"
 
-    async def _search(self, term: str, kind: str, limit: int) -> list[dict]:
+    async def _search(self, term: str, kind: str, limit: int) -> list[dict[str, Any]]:
         data = await self._amp.request(
             "GET", self._path("/search"), params={"term": term, "types": kind, "limit": _clamp(limit)}
         )

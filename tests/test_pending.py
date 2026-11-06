@@ -9,9 +9,10 @@ from apple_music_mcp.config import Credentials, save_credentials
 from apple_music_mcp.server import build_server
 
 from .conftest import build_app, result_text
+from .fake_apple import FakeAppleMusic
 
 
-async def test_expired_login_keeps_playlist_pending_then_finishes(fake_apple):
+async def test_expired_login_keeps_playlist_pending_then_finishes(fake_apple: FakeAppleMusic) -> None:
     expired = Credentials(media_user_token="expired-token-xxxxxxxxxxxx", storefront="br")
     async with Client(build_server(lambda: build_app(expired))) as c:
         res = await c.call_tool(
@@ -32,7 +33,7 @@ async def test_expired_login_keeps_playlist_pending_then_finishes(fake_apple):
     assert again["note"] == "No pending playlists."
 
 
-async def test_discard_pending(fake_apple):
+async def test_discard_pending(fake_apple: FakeAppleMusic) -> None:
     expired = Credentials(media_user_token="expired-token-xxxxxxxxxxxx")
     async with Client(build_server(lambda: build_app(expired))) as c:
         await c.call_tool("create_playlist", {"name": "Old idea", "song_ids": ["4001"]})
@@ -43,7 +44,7 @@ async def test_discard_pending(fake_apple):
     assert fake_apple.playlists == {}
 
 
-async def test_finish_pending_cli(fake_apple):
+async def test_finish_pending_cli(fake_apple: FakeAppleMusic) -> None:
     expired = Credentials(media_user_token="expired-token-xxxxxxxxxxxx")
     async with Client(build_server(lambda: build_app(expired))) as c:
         await c.call_tool("create_playlist", {"name": "Run", "song_ids": ["2001"]})

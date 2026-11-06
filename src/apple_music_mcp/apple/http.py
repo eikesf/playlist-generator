@@ -44,7 +44,7 @@ class RetryPolicy:
                     return max(0.0, min(float(retry_after), self.max_delay))
                 except ValueError:
                     pass
-        wait = self.base_delay * 2 ** (attempt - 1)
+        wait: float = self.base_delay * 2.0 ** (attempt - 1)
         if resp is not None and resp.status_code == 429:
             wait *= self.rate_limit_factor
         return min(wait, self.max_delay)

@@ -13,12 +13,13 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import respx
 
-from apple_music_mcp.resolver import normalize
+from apple_music_mcp.text import normalize
 
 from .conftest import make_jwt
 
@@ -35,7 +36,7 @@ class FakeSong:
     genres: tuple[str, ...] = ("Techno", "Electronic", "Music")
     explicit: bool = False
 
-    def resource(self, storefront: str) -> dict:
+    def resource(self, storefront: str) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": "songs",
@@ -53,7 +54,7 @@ class FakeSong:
             },
         }
 
-    def itunes(self, storefront: str) -> dict:
+    def itunes(self, storefront: str) -> dict[str, Any]:
         return {
             "wrapperType": "track",
             "kind": "song",
@@ -112,7 +113,7 @@ class FakeAppleMusic:
     catalog: list[FakeSong] = field(default_factory=lambda: list(DEFAULT_CATALOG))
     dev_token: str = field(default_factory=lambda: make_jwt(time.time() + 90 * 86400))
     amp_available: bool = True
-    playlists: dict[str, dict] = field(default_factory=dict)
+    playlists: dict[str, dict[str, Any]] = field(default_factory=dict)
     calls: list[tuple[str, str]] = field(default_factory=list)
     fail_next: list[int] = field(default_factory=list)
     # Which track-removal request shapes this fake accepts ("query", "path"); empty = none.
@@ -132,7 +133,7 @@ class FakeAppleMusic:
     getsongbpm_key: str = "test-getsongbpm-key"
     external_calls: list[str] = field(default_factory=list)
     _adds: int = 0
-    _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
+    _ids: itertools.count[int] = field(default_factory=lambda: itertools.count(1))
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -256,7 +257,7 @@ class FakeAppleMusic:
             if limit > 25:
                 return httpx.Response(400, json={"errors": [{"title": "Invalid Parameter Value"}]})
             types = q.get("types", ["songs"])[0]
-            results: dict = {}
+            results: dict[str, Any] = {}
             if "songs" in types:
                 found = self.search(term, limit)
                 if found:
@@ -446,7 +447,7 @@ class FakeAppleMusic:
         self.playlists[pid]["tracks"] = [t for t in tracks if t != sid]  # mode=all: every occurrence
         return httpx.Response(204)
 
-    def _playlist_resource(self, pid: str) -> dict:
+    def _playlist_resource(self, pid: str) -> dict[str, Any]:
         p = self.playlists[pid]
         return {
             "id": pid,
