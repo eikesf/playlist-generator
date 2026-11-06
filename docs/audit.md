@@ -143,3 +143,18 @@ Still to verify live: everything in the Phase 1 runbook; the healthchecks.io pau
 | §4 skill served by the server; §7.5 default 5 h; §7.12 English names | this PR | `playlist-curator` prompt + `skill://` resource |
 
 Still open, deferred to Phase 3: pending playlists still live in `setting` (data model decision 6 moves them into `proposal`), and the refresh still keeps its plans in `setting`. Both move to `proposal` together with the refresh rework.
+
+## 10. Phase 1 live validation (2026-11-06, owner's Mac)
+
+| Step | Result | Detail |
+|---|---|---|
+| Keychain | ok | `status`: secrets in the macOS Keychain; `credentials.json` holds no token |
+| `login` with expiry | ok | Expiry estimated (owner left the date empty): 2027-05-05 |
+| `run heartbeat` | ok | healthchecks.io pinged (10 min period, 8 h grace); Claude Desktop detected running |
+| `run doctor` | ok | All 11 checks ok, including AppleScript with persistent IDs |
+| `run snapshot` | ok | 747 library tracks, baseline written (the guide's known-track definitions are now active) |
+| `run recent_played` | ok | 50 items, 0 stations, no overflow |
+| `run backup` | ok | 156 KB in iCloud Drive/apple-music-mcp-backups |
+| `schedule install` | ok | 5 launchd agents loaded (doctor 08:10, snapshot 23:40, recent 10:30/22:30, backup 23:50, heartbeat 10 min) |
+
+ntfy: topic configured by the owner (not recorded here). Still to confirm: a real ntfy alert on a failure, and `pause` with the healthchecks API key (optional).
