@@ -8,6 +8,7 @@ from . import (
     catalog_tools,
     curation_tools,
     editing_tools,
+    feedback_tools,
     library_tools,
     refresh_tools,
     session_tools,
@@ -24,3 +25,4 @@ def register_all(mcp: MCPServer, provider: ContainerProvider) -> None:
     editing_tools.register(mcp, provider)
     refresh_tools.register(mcp, provider)
     session_tools.register(mcp, provider)
+    feedback_tools.register(mcp, provider)

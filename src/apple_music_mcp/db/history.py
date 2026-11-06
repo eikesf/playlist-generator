@@ -39,7 +39,7 @@ MANAGED_FIELDS = (
 )
 
 
-def _row(r: Any) -> dict[str, Any]:
+def row_dict(r: Any) -> dict[str, Any]:
     out = dict(r._mapping)
     for k, v in out.items():
         if isinstance(v, datetime):
@@ -104,19 +104,19 @@ class ManagedPlaylistRepository:
             r = conn.execute(
                 self._query().where(managed_playlist.c.apple_playlist_id == apple_playlist_id)
             ).first()
-        return _row(r) if r else None
+        return row_dict(r) if r else None
 
     def get_by_id(self, managed_id: int) -> dict[str, Any] | None:
         with self._db.engine.connect() as conn:
             r = conn.execute(self._query().where(managed_playlist.c.id == managed_id)).first()
-        return _row(r) if r else None
+        return row_dict(r) if r else None
 
     def list(self, include_retired: bool = False) -> list[dict[str, Any]]:
         q = self._query().order_by(managed_playlist.c.name)
         if not include_retired:
             q = q.where(managed_playlist.c.status == "active")
         with self._db.engine.connect() as conn:
-            return [_row(r) for r in conn.execute(q)]
+            return [row_dict(r) for r in conn.execute(q)]
 
 
 class SessionRepository:
@@ -163,7 +163,7 @@ class SessionRepository:
                 .where(session_turn.c.session_id == session_id)
                 .order_by(session_turn.c.seq)
             )
-            return {**_row(r), "turns": [_row(t) for t in turns]}
+            return {**row_dict(r), "turns": [row_dict(t) for t in turns]}
 
 
 @dataclass
@@ -244,7 +244,7 @@ class ProposalRepository:
                 .where(proposal_item.c.proposal_id == proposal_id)
                 .order_by(proposal_item.c.position)
             )
-            return {**_row(r), "items": [_row(i) for i in items]}
+            return {**row_dict(r), "items": [row_dict(i) for i in items]}
 
     def decide_items(self, proposal_id: int, decisions: dict[str, tuple[str, str | None]]) -> int:
         """Set ``decision``/``reason`` by catalog id. Returns how many items changed."""
@@ -292,7 +292,7 @@ class ProposalRepository:
             .limit(limit)
         )
         with self._db.engine.connect() as conn:
-            return [_row(r) for r in conn.execute(q)]
+            return [row_dict(r) for r in conn.execute(q)]
 
 
 class PlaylistEventRepository:
@@ -346,4 +346,4 @@ class PlaylistEventRepository:
             .limit(limit)
         )
         with self._db.engine.connect() as conn:
-            return [_row(r) for r in conn.execute(q)]
+            return [row_dict(r) for r in conn.execute(q)]

@@ -97,6 +97,15 @@ class CurationSessions:
             raise ValueError("a preview needs at least one track")
         songs = {s.id: s for s in await self.app.catalog.get_songs(ids)}
         missing = [i for i in ids if i not in songs]
+        banned = self.app.blacklist()
+        blocked = [
+            {"song_id": i, "line": songs[i].label, "reason": reason}
+            for i in ids
+            if i in songs and (reason := banned.blocked_reason(i, songs[i].artist, songs[i].name))
+        ]
+        ids = [i for i in ids if i not in {b["song_id"] for b in blocked}]
+        if not ids:
+            raise ValueError("every proposed track is on the blacklist")
         profile = self.app.profiles.get(purpose) if purpose else None
         managed = self.managed.get(playlist_id) if playlist_id else None
         by_id = {t.song_id: t for t in tracks}
@@ -121,7 +130,7 @@ class CurationSessions:
         )
         if replaces_proposal_id is not None:
             self.proposals.set_status(replaces_proposal_id, "rejected")
-        return {**self._render(proposal_id), "not_in_catalog": missing}
+        return {**self._render(proposal_id), "not_in_catalog": missing, "blocked_by_blacklist": blocked}
 
     def _render(self, proposal_id: int) -> dict[str, Any]:
         p = self.proposals.get(proposal_id)
