@@ -22,6 +22,7 @@ from .discovery import DiscoveryService
 from .editing import PlaylistEditor
 from .local_music import MusicAppReader
 from .ports import KeyValueStore
+from .settings import AppSettings
 
 
 class AppContainer:
@@ -39,22 +40,31 @@ class AppContainer:
         token_scraper: TokenScraper = scrape_developer_token,
         use_deezer: bool = True,
         music_app: MusicAppReader | None = None,
+        settings: AppSettings | None = None,
     ):
+        self.settings = settings or AppSettings.from_env()
         self.store = store or CredentialStore()
         self.db = db
         if state is None:
             self.db = self.db or Database.open()
-            settings = SettingsStore(self.db)
-            import_state_file(settings, config_dir() / STATE_FILE)
-            state = settings
-        self.state = state
+            kv = SettingsStore(self.db)
+            import_state_file(kv, config_dir() / STATE_FILE)
+            state = kv
+        self.state: KeyValueStore = state
         self.credentials = credentials or self.store.load()
         self._http = http or httpx.AsyncClient(timeout=30, follow_redirects=True)
         self._owns_http = http is None
         self.tokens = DeveloperTokenProvider(
             self.credentials, self._http, store=self.store if persist else None, scraper=token_scraper
         )
-        self.transport = AmpTransport(self._http, self.credentials, self.tokens, retry, sleep)
+        self.transport = AmpTransport(
+            self._http,
+            self.credentials,
+            self.tokens,
+            retry,
+            sleep,
+            enabled=self.settings.apple_web_api_enabled,
+        )
         self.itunes = ITunesSearch(self._http, self.storefront, retry, sleep)
         self.catalog = CatalogService(self.transport, self.storefront, fallback=self.itunes)
         self.library = LibraryService(self.transport)

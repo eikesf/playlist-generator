@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 
 from . import __version__
 from .config import CredentialStore
+from .settings import load_env_file
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     login.add_argument("--token", help="media-user-token value (otherwise prompted, hidden)")
     login.add_argument("--storefront", help="two-letter storefront, default: your account's")
     login.add_argument("--browser", action="store_true", help="open a browser window and capture tokens")
+    login.add_argument("--expires", help="cookie expiry date YYYY-MM-DD (otherwise asked; empty = estimate)")
     sub.add_parser("status", help="show stored credentials (masked)")
     doctor = sub.add_parser("doctor", help="live checks against Apple Music")
     doctor.add_argument("--write", action="store_true", help="also create (and delete) a test playlist")
@@ -56,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    load_env_file()
     if args.command is None and sys.stdin.isatty():
         parser.print_help()
         return 0
@@ -67,11 +69,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "login":
         from .commands.login import run_login
 
-        return asyncio.run(run_login(args.token, args.storefront, args.browser))
+        return asyncio.run(run_login(args.token, args.storefront, args.browser, expires=args.expires))
     if args.command == "status":
-        store = CredentialStore()
-        print(json.dumps({"file": str(store.path), **store.load().redacted()}, indent=2))
-        return 0
+        from .commands.status import run_status
+
+        return run_status()
     if args.command == "doctor":
         from .commands.doctor import run_doctor
 
