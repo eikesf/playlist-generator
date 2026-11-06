@@ -1,30 +1,30 @@
 # Data model (Phase 1) — ERD for approval [GATE]
 
-**Status:** proposal, waiting for the owner's approval (guide §8.3). No table or migration is created before approval.
+**Status:** proposal, revision 2 (after the owner's review), waiting for approval (guide §8.3). No table or migration is created before approval.
 **Storage:** SQLite on the Mac, accessed through SQLAlchemy 2.0 Core, schema managed by Alembic migrations (risk assessment §7). Secrets never go in the database (guide §5): the tokens live in the macOS Keychain; the database only stores their expiry dates.
 
-## 1. Diagram
+## 1. Domain diagram
 
 ```mermaid
 erDiagram
-    ARTIST ||--o{ TRACK : "primary artist of"
-    TRACK ||--o| BPM : "measured as"
-    TRACK ||--o{ PLAY_SNAPSHOT : "counted in"
-    TRACK ||--o{ RECENT_PLAY : "seen in"
-    COLLECTOR_RUN ||--o{ RECENT_PLAY : "found"
     PROFILE ||--o{ PROFILE : "sub-category of"
     PROFILE ||--o{ MANAGED_PLAYLIST : "shapes"
-    MANAGED_PLAYLIST ||--o{ SESSION : "edited in"
+    MANAGED_PLAYLIST ||--o{ PROPOSAL : "targets"
     SESSION ||--o{ SESSION_TURN : "has"
     SESSION ||--o{ PROPOSAL : "produces"
-    MANAGED_PLAYLIST ||--o{ PROPOSAL : "targets"
     PROPOSAL ||--o{ PROPOSAL_ITEM : "contains"
-    TRACK ||--o{ PROPOSAL_ITEM : "proposed as"
     MANAGED_PLAYLIST ||--o{ PLAYLIST_EVENT : "history"
-    TRACK ||--o{ PLAYLIST_EVENT : "moved"
     PROPOSAL ||--o{ PLAYLIST_EVENT : "applied as"
-    TRACK ||--o{ TRACK_FEEDBACK : "receives"
     MANAGED_PLAYLIST ||--o{ TRACK_FEEDBACK : "in context of"
+    ARTIST ||--o{ TRACK : "primary artist of"
+    TRACK ||--o{ PROPOSAL_ITEM : "proposed as"
+    TRACK ||--o{ PLAYLIST_EVENT : "moved"
+    TRACK ||--o{ TRACK_FEEDBACK : "receives"
+    TRACK ||--o{ PLAY_SNAPSHOT : "counted in"
+    TRACK ||--o{ RECENT_PLAY : "seen in"
+    JOB_RUN ||--o{ RECENT_PLAY : "collected"
+    JOB_RUN ||--o{ PLAY_SNAPSHOT : "collected"
+    JOB_RUN ||--o{ PROPOSAL : "generated"
     ARTIST ||--o{ BLACKLIST_ENTRY : "blocked"
     TRACK ||--o{ BLACKLIST_ENTRY : "blocked"
 
@@ -48,35 +48,36 @@ erDiagram
         int duration_ms
         text isrc
         bool explicit
+        real bpm "nullable until looked up"
+        text bpm_source "getsongbpm | deezer | estimated"
+        real bpm_confidence
+        datetime bpm_fetched_at
         datetime metadata_fetched_at
-    }
-    BPM {
-        int track_id PK, FK
-        real bpm
-        text source "getsongbpm | deezer | estimated"
-        real confidence
-        datetime fetched_at
     }
     PLAY_SNAPSHOT {
         date snapshot_date PK
         int track_id PK, FK
-        int played_count "cumulative, from the Music app"
-        int skipped_count "cumulative"
+        int job_run_id FK
+        int played_count "cumulative counter from the Music app"
+        int skipped_count "cumulative counter"
         bool favorited
         bool disliked
     }
-    COLLECTOR_RUN {
-        int id PK
-        datetime ran_at
-        int items_returned
-        int new_items "drives the polling schedule"
-    }
     RECENT_PLAY {
         int id PK
-        int collector_run_id FK
+        int job_run_id FK "the collection that saw it"
         int track_id FK
         int position "order in the API response"
         datetime first_seen_at
+    }
+    JOB_RUN {
+        int id PK
+        text job "doctor | backup | snapshot | recent_played | refresh_plan | heartbeat"
+        datetime started_at
+        datetime finished_at
+        text status "ok | warn | failed | skipped_paused"
+        json detail "per-check results, counts (items returned, new items)"
+        text error "masked, never a token"
     }
     PROFILE {
         int id PK
@@ -114,9 +115,8 @@ erDiagram
     SESSION {
         int id PK
         datetime started_at
-        text channel "desktop | dispatch | scheduled"
+        text channel "desktop | dispatch"
         text intent "create | edit"
-        int managed_playlist_id FK "nullable until chosen"
         text request "the owner's first message"
         text status "open | completed | abandoned"
     }
@@ -129,8 +129,9 @@ erDiagram
     }
     PROPOSAL {
         int id PK
-        int session_id FK "null for scheduled jobs"
-        int managed_playlist_id FK "null for a playlist not created yet"
+        int session_id FK "set when born in a conversation"
+        int job_run_id FK "set when born in a scheduled job"
+        int managed_playlist_id FK "null until a new playlist is created"
         text kind "create | edit | refresh | discoveries | promotion"
         text status "draft | pending_approval | approved | applied | rejected | expired"
         json params "mix, duration, profile snapshot"
@@ -181,53 +182,44 @@ erDiagram
         datetime created_at
         datetime lifted_at "null while active"
     }
-    SETTING {
-        text key PK
-        json value
-        datetime updated_at
-    }
-    CREDENTIAL_STATUS {
-        text name PK "user_token | developer_token"
-        datetime expires_at
-        datetime checked_at
-        datetime reminder_sent_at
-    }
-    HTTP_CACHE {
-        text key PK "namespace + request hash"
-        text namespace "catalog_search | library | ratings"
-        json payload
-        datetime expires_at
-    }
-    JOB_RUN {
-        int id PK
-        text job "doctor | backup | snapshot | recent_played | refresh_plan | heartbeat"
-        datetime started_at
-        datetime finished_at
-        text status "ok | warn | failed | skipped_paused"
-        json detail "per-check results, counts, file paths"
-        text error "masked, never a token"
-    }
 ```
 
-## 2. Decisions inside this design (please confirm or change)
+## 2. Support tables (outside the domain diagram)
+
+Two tables are infrastructure, not part of the domain, so they stay out of the ERD. They live in the same database and migrations.
+
+| Table | Columns | Purpose |
+|---|---|---|
+| `setting` | `key` PK, `value` json, `updated_at` | Preferences the owner changes in chat (default mix, `KNOWN_MIN_PLAYS`, default duration, polling times), learned technical choices (which track-removal request shape Apple accepts), and token expiry dates (`user_token_expires_at`, `developer_token_expires_at`, reminder sent). Machine configuration stays in `.env`. |
+| `http_cache` | `key` PK, `namespace`, `payload` json, `expires_at` | Cached Apple responses: catalog search 7 days, library and ratings 24 h (guide §4.1). Can be emptied at any time without losing information. |
+
+## 3. Design decisions (please confirm or change)
 
 1. **One `TRACK` table with three identifiers.** The same song shows up as a catalog id (search, playlists), a library id (library API) and a Music app persistent ID (AppleScript). All three are nullable and unique, and `match_key` (normalized artist + title) links them when ids are missing. This replaces today's name-based matching. It needs one small change: the AppleScript reader also returns `persistent ID` (to verify on the Mac with `doctor`).
-2. **Sparse daily snapshots.** `PLAY_SNAPSHOT` stores a row only when a track's counters changed since the last snapshot, plus one full baseline on the first run. The counters are cumulative, so daily deltas come from comparing rows. A full copy every day would be ~1 row per library track per day for no extra information.
-3. **Recently played has no timestamps.** Apple returns the last ~50 songs in order, without play times (seen in the code and community reports; to confirm live). So `RECENT_PLAY` records the order and when we first saw the item, and each `COLLECTOR_RUN` records how many new items it found. That's the number we'll use to tune the 10:30 / 22:30 schedule.
-4. **One `PROPOSAL` table for every kind.** The preview, a refresh, a weekly "Descobertas" batch and a promotion all go through the same table (`kind`) with the same lifecycle (`draft → pending_approval → approved → applied`, or `rejected`/`expired`). The guide lists them separately. One table means one approval flow, one history, and one place for the dashboard to read. The "pending playlists" kept today in `state.json` become `create` proposals that are `approved` but not yet `applied`.
-5. **`PLAYLIST_EVENT` is append-only.** Never updated or deleted, so every add, removal, move and archive stays auditable (guide §8.1) and supports the "never lose a track" rule (ADR 0010). `origin = external` covers changes the owner makes in the Music app, which we detect by diffing.
-6. **Profiles are data, with families.** `PROFILE.parent_id` makes families with sub-categories (for example Focus → binaural / epic soundtrack). `origin` separates builtin profiles from ones Claude creates in a conversation. A managed playlist points to a profile, and each proposal keeps a snapshot of the parameters it used, so later profile edits don't rewrite history.
-7. **"Não gostei" never touches the blacklist.** `TRACK_FEEDBACK` stores the reason and the removal suggestion. `BLACKLIST_ENTRY` is only created from an explicit request, stored verbatim in `owner_request`. Lifting an entry sets `lifted_at` instead of deleting it.
-8. **Settings: `.env` vs database.** `.env` keeps machine configuration (paths, ntfy topic, healthcheck URL, storefront, time zone). `SETTING` keeps preferences the owner changes in chat (default mix, `KNOWN_MIN_PLAYS`, default duration, polling times). Learned technical choices also go there, such as which track-removal request shape Apple accepts (today in `state.json`).
-9. **One generic cache table.** `HTTP_CACHE` holds catalog search (7 days), library and ratings (24 h). BPM gets its own table because it is permanent and queried by track. The current `state.json` caches are moved into these tables by the first migration.
-10. **No conversation transcript.** `SESSION_TURN` stores the questions and answers Claude records through a tool, not the full chat. That keeps the history useful without storing everything said.
+2. **BPM is a column of `TRACK`** (revision 2, owner's review). It is 1:1 with the track, so a separate table only added a join.
+3. **Sparse daily snapshots.** The Music app keeps cumulative counters per track (played count, skipped count), like an electricity meter. `PLAY_SNAPSHOT` reads the meter every day and stores a row only when a track's counters changed, plus one full baseline on the first run. The difference between two days is what was played (or skipped) in between. Refresh ("least played lately"), the known-track rule (≥ 10 plays) and the dashboard trends all come from it.
+4. **Recently played has no timestamps.** Apple returns the last ~50 songs in order, without play times (seen in the code and community reports; to confirm live). So `RECENT_PLAY` records the order and when we first saw the item.
+5. **Every scheduled run is a `JOB_RUN`** (revision 2). The separate collector-run table is gone: each collection of recently played or snapshot is a `JOB_RUN` whose `detail` holds the counts (items returned, new items, used to tune the 10:30 / 22:30 schedule). Snapshots, recent plays and scheduled proposals point to the run that produced them, so every automatic change can be traced to the job that made it.
+6. **One `PROPOSAL` table for every kind.** A proposal is a set of changes waiting for approval; its items are the tracks to add, remove or keep. `PLAYLIST_EVENT` is what actually happened after approval (the proposal is the shopping list, the event is the receipt). The preview, a refresh, a weekly "Descobertas" batch and a promotion share the same lifecycle (`draft → pending_approval → approved → applied`, or `rejected`/`expired`). A proposal comes either from a conversation (`session_id`) or from a scheduled job (`job_run_id`). The "pending playlists" kept today in `state.json` become `create` proposals that are `approved` but not yet `applied`.
+7. **The playlist link lives on the proposal, not on the session** (revision 2). A session is a conversation and can touch more than one playlist. A refresh or discoveries proposal has no session at all. A "create" session has no playlist until the playlist exists. So `PROPOSAL.managed_playlist_id` is the only link, and a session's playlists are derived from its proposals.
+8. **`PLAYLIST_EVENT` is append-only.** Never updated or deleted, so every add, removal, move and archive stays auditable (guide §8.1) and supports the "never lose a track" rule (ADR 0010). `origin = external` covers changes the owner makes in the Music app, which we detect by diffing.
+9. **Profiles are data, with families.** `PROFILE.parent_id` makes families with sub-categories (for example Focus → binaural / epic soundtrack). `origin` separates builtin profiles from ones Claude creates in a conversation. Each proposal keeps a snapshot of the parameters it used, so later profile edits don't rewrite history.
+10. **"Não gostei" never touches the blacklist.** `TRACK_FEEDBACK` stores the reason and the removal suggestion. `BLACKLIST_ENTRY` is only created from an explicit request, stored verbatim in `owner_request`. Lifting an entry sets `lifted_at` instead of deleting it.
+11. **No conversation transcript.** `SESSION_TURN` stores the questions and answers Claude records through a tool, not the full chat.
 
-## 3. What is not in this model
+## 4. What is not in this model
 
 - Tokens and API keys (Keychain / `.env`).
 - Audio features beyond BPM (not available for free).
 - Dashboard aggregates. They are computed by queries or views in Phase 4, not stored.
 
-## 4. Volume estimate
+## 5. Volume estimate
 
 For a library of ~2,000 tracks: ~2k `TRACK` rows; `PLAY_SNAPSHOT` grows by the tracks played each day (tens of rows/day with the sparse rule); `RECENT_PLAY` ≤ 100 rows/day; the rest grows with use (sessions, proposals). Well within SQLite's range for years. The daily backup (guide §6.5) stays small.
+
+## 6. Revision history
+
+| Rev | Change |
+|---|---|
+| 1 | Initial proposal (20 entities) |
+| 2 | Owner's review: BPM folded into `TRACK`; `COLLECTOR_RUN` folded into `JOB_RUN`, which now links to the data it collects; `CREDENTIAL_STATUS` folded into `setting`; `setting` and `http_cache` moved out of the domain diagram; session ↔ playlist link removed (the proposal carries it) |
