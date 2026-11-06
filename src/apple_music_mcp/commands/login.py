@@ -96,9 +96,9 @@ async def run_login(
     when = expiry["expires_at"][:10] + (" (estimated)" if expiry["estimated"] else "")
     out(f"OK. Signed in (storefront '{creds.storefront}'). Credentials saved to {store.location}")
     out(f"The session token expires around {when}. You will get a reminder before that.")
-    from ..operations import PENDING_KEY
+    from ..operations import PendingPlaylists
 
-    pending = app.state.get(PENDING_KEY, []) or []
+    pending = PendingPlaylists(app).list()
     if pending:
         names = ", ".join(f"'{p['name']}'" for p in pending)
         out(f"{len(pending)} playlist(s) waiting to be created: {names}. Run: apple-music-mcp finish-pending")
