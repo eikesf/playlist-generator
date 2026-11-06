@@ -17,7 +17,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from ..apple.http import BROWSER_UA, RetryPolicy, Sleep, safe_json, send_with_retry
+from ..apple.http import BROWSER_UA, RateLimiter, RetryPolicy, Sleep, safe_json, send_with_retry
 from ..models import Song
 from ..resolver import MATCH_THRESHOLD, TrackRequest, score
 
@@ -66,12 +66,14 @@ class _HttpProvider:
         self._http = http
         self._retry = retry or RetryPolicy()
         self._sleep = sleep
+        self._limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)  # one per BPM service
 
     async def _get(self, url: str, params: dict[str, Any]) -> Any:
         async def send() -> httpx.Response:
             return await self._http.get(url, params=params, headers={"User-Agent": BROWSER_UA})
 
-        resp = await send_with_retry(send, self._retry, self._sleep)
+        async with self._limiter:
+            resp = await send_with_retry(send, self._retry, self._sleep)
         if resp.status_code >= 400:
             return None
         return safe_json(resp)

@@ -9,7 +9,7 @@ import httpx
 
 from ..models import Song
 from .errors import AppleMusicError
-from .http import BROWSER_UA, RetryPolicy, Sleep, safe_json, send_with_retry
+from .http import BROWSER_UA, RateLimiter, RetryPolicy, Sleep, safe_json, send_with_retry
 
 ITUNES_SEARCH = "https://itunes.apple.com/search"
 
@@ -21,7 +21,9 @@ class ITunesSearch:
         storefront: Callable[[], str],
         retry: RetryPolicy | None = None,
         sleep: Sleep = asyncio.sleep,
+        limiter: RateLimiter | None = None,
     ):
+        self._limiter = limiter or RateLimiter(sleep=sleep)
         self._http = http
         self._storefront = storefront
         self._retry = retry or RetryPolicy()
@@ -39,7 +41,8 @@ class ITunesSearch:
         async def send() -> httpx.Response:
             return await self._http.get(ITUNES_SEARCH, params=params, headers={"User-Agent": BROWSER_UA})
 
-        resp = await send_with_retry(send, self._retry, self._sleep)
+        async with self._limiter:
+            resp = await send_with_retry(send, self._retry, self._sleep)
         if resp.status_code >= 400:
             raise AppleMusicError(f"iTunes Search failed with HTTP {resp.status_code}", resp.status_code)
         results = safe_json(resp) or {}

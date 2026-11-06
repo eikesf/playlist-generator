@@ -7,7 +7,7 @@ import asyncio
 import httpx
 
 from .apple.catalog import CatalogService
-from .apple.http import RetryPolicy, Sleep
+from .apple.http import RateLimiter, RetryPolicy, Sleep
 from .apple.itunes import ITunesSearch
 from .apple.library import LibraryService
 from .apple.taste import TasteService
@@ -17,6 +17,7 @@ from .bpm.providers import BpmProvider, DeezerProvider, GetSongBpmProvider
 from .bpm.service import BpmService
 from .config import STATE_FILE, Credentials, CredentialStore, config_dir
 from .db import Database
+from .db.cache import ResponseCache
 from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
@@ -57,6 +58,9 @@ class AppContainer:
         self.tokens = DeveloperTokenProvider(
             self.credentials, self._http, store=self.store if persist else None, scraper=token_scraper
         )
+        # One limiter per service, shared by every caller (guide §4.1: ~5 req/s, 3 in flight).
+        self.apple_limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)
+        self.cache = ResponseCache(self.db) if self.db is not None else None
         self.transport = AmpTransport(
             self._http,
             self.credentials,
@@ -64,8 +68,10 @@ class AppContainer:
             retry,
             sleep,
             enabled=self.settings.apple_web_api_enabled,
+            limiter=self.apple_limiter,
+            cache=self.cache,
         )
-        self.itunes = ITunesSearch(self._http, self.storefront, retry, sleep)
+        self.itunes = ITunesSearch(self._http, self.storefront, retry, sleep, limiter=self.apple_limiter)
         self.catalog = CatalogService(self.transport, self.storefront, fallback=self.itunes)
         self.library = LibraryService(self.transport)
         self.editor = PlaylistEditor(self.library, self.state)
