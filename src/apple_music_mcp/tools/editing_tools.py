@@ -7,7 +7,6 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from ..curation.profiles import get_profile
 from ..curation.sequencer import TrackFeatures, order_tracks
 from ..operations import enrich_features, insert_into_playlist
 from .base import ContainerProvider, tool_errors
@@ -82,7 +81,7 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         app = provider.get()
         features = [TrackFeatures.from_dict(t.model_dump()) for t in tracks]
         await enrich_features(app, features)
-        sequence = order_tracks(get_profile(purpose), features)
+        sequence = order_tracks(provider.get().profiles.get(purpose), features)
         result = await app.editor.sync(playlist_id, sequence["song_ids_in_order"], allow_rebuild)
         return {"edit": result.to_dict(), "sequence": sequence}
 

@@ -15,7 +15,12 @@ from apple_music_mcp.curation.sequencer import Sequencer, TrackFeatures, bpm_dis
     [
         ("dj_set", "dj_set"),
         ("Set de techno estilo DJ", "dj_set"),
-        ("melodic techno", "dj_set"),
+        ("melodic techno", "melodic_techno"),
+        ("foco com ondas binaurais", "binaural"),
+        ("trilha sonora épica para focar", "epic_soundtrack"),
+        ("foco no trabalho", "focus"),
+        ("treino hiit", "hiit"),
+        ("focus.binaural", "binaural"),
         ("playlist para treino na academia", "workout"),
         ("corrida 10k", "running"),
         ("música para estudar e ter foco", "study"),
@@ -38,6 +43,26 @@ def test_every_profile_is_consistent() -> None:
         assert all(1 <= a.energy_start <= 10 and 1 <= a.energy_end <= 10 for a in p.acts)
         assert p.energy_at(0) == p.acts[0].energy_start
         assert p.energy_at(1) == p.acts[-1].energy_end
+
+
+def test_families_and_sub_profiles() -> None:
+    families = {p.key for p in PROFILES.values() if p.is_family}
+    assert families == {"dj_set", "workout", "running", "focus", "party", "chill", "sleep", "exploration"}
+    assert PROFILES["study"].family_key == "focus" and PROFILES["binaural"].family_key == "focus"
+    assert PROFILES["hiit"].family_key == "workout"
+    # a sub-profile inherits what it does not override
+    assert PROFILES["melodic_techno"].acts == PROFILES["dj_set"].acts
+    assert PROFILES["melodic_techno"].bpm_range == (118, 128)
+    # the owner's rule for focus: nothing heavy
+    for key in ("focus", "study", "binaural", "epic_soundtrack"):
+        assert max(point["energy"] for point in PROFILES[key].curve(41)) <= 7
+
+
+def test_curve_samples_energy_and_bpm() -> None:
+    curve = PROFILES["dj_set"].curve(5)
+    assert [c["t"] for c in curve] == [0.0, 0.25, 0.5, 0.75, 1.0]
+    assert curve[0]["energy"] == 3 and curve[-1]["energy"] == 4
+    assert all(118 <= c["bpm"] <= 140 for c in curve)
 
 
 def test_study_profile_has_no_peaks_and_workout_stays_high() -> None:
