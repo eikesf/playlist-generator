@@ -1,4 +1,4 @@
-"""`apple-music-mcp refresh` (read-only plan + staging) and weekly scheduling on macOS (launchd)."""
+"""`apple-music-mcp refresh`: a read-only refresh proposal, decided later in a conversation."""
 
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ def log_path() -> Path:
 async def run_refresh(
     playlist_name: str,
     *,
-    new_tracks: int | None = None,
     notify: bool = False,
     build: ContainerBuilder = default_container,
     store: CredentialStore | None = None,
@@ -41,18 +40,16 @@ async def run_refresh(
         if not target:
             out(f"Playlist '{playlist_name}' not found in your library.")
             return 1
-        plan = await RefreshService(app, app.music_app).plan(
-            target.id, RefreshSettings(new_tracks=new_tracks)
-        )
+        plan = await RefreshService(app, app.music_app).build_plan(target.id, RefreshSettings.from_app(app))
     except AppleMusicError as exc:
         out(f"Refresh failed: {exc}")
         return 1
     finally:
         await app.aclose()
+    counts = plan["summary"]
     summary = (
-        f"{len(plan['added_to_staging'])} novas em '{plan['staging_playlist']['name']}', "
-        f"{len(plan['rotation_candidates'])} menos ouvidas e "
-        f"{len(plan['removal_candidates'])} com 'não gostei' para você decidir. Nada foi removido."
+        f"Proposta #{plan['proposal_id']} para '{playlist_name}': {counts['remove']} saem, "
+        f"{counts['add']} entram. Nada foi removido: decida numa conversa com o Claude."
     )
     out(summary)
     out(json.dumps(plan, ensure_ascii=False, indent=2))

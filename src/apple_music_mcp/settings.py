@@ -51,6 +51,15 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _ratio(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        return default
+    return value if 0 <= value <= 1 else default
+
+
 def _str(name: str, default: str | None = None) -> str | None:
     raw = os.environ.get(name, "").strip()
     return raw or default
@@ -90,6 +99,13 @@ class AppSettings:
     known_min_plays: int = 10
     refresh_auto_apply: bool = False
     token_reminder_days: int = 7
+    # Weekly refresh (guide §7.10): evidence window and thresholds.
+    refresh_window_days: int = 42
+    refresh_min_history_days: int = 14
+    refresh_min_days_in_playlist: int = 14
+    refresh_min_skips: int = 3
+    refresh_skip_ratio: float = 0.5
+    proposal_ttl_days: int = 7
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -113,6 +129,14 @@ class AppSettings:
             known_min_plays=_int("KNOWN_MIN_PLAYS", d.known_min_plays),
             refresh_auto_apply=_bool("REFRESH_AUTO_APPLY", d.refresh_auto_apply),
             token_reminder_days=_int("TOKEN_REMINDER_DAYS", d.token_reminder_days),
+            refresh_window_days=max(7, _int("REFRESH_WINDOW_DAYS", d.refresh_window_days)),
+            refresh_min_history_days=max(1, _int("REFRESH_MIN_HISTORY_DAYS", d.refresh_min_history_days)),
+            refresh_min_days_in_playlist=max(
+                0, _int("REFRESH_MIN_DAYS_IN_PLAYLIST", d.refresh_min_days_in_playlist)
+            ),
+            refresh_min_skips=max(1, _int("REFRESH_MIN_SKIPS", d.refresh_min_skips)),
+            refresh_skip_ratio=_ratio("REFRESH_SKIP_RATIO", d.refresh_skip_ratio),
+            proposal_ttl_days=max(1, _int("PROPOSAL_TTL_DAYS", d.proposal_ttl_days)),
         )
 
     def redacted(self) -> dict[str, object]:
@@ -132,4 +156,7 @@ class AppSettings:
             "heartbeat_minutes": self.heartbeat_minutes,
             "known_min_plays": self.known_min_plays,
             "refresh_auto_apply": self.refresh_auto_apply,
+            "refresh_window_days": self.refresh_window_days,
+            "refresh_min_history_days": self.refresh_min_history_days,
+            "proposal_ttl_days": self.proposal_ttl_days,
         }

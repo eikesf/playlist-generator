@@ -145,7 +145,7 @@ async def test_refresh_command_is_read_only_for_main(fake_apple: FakeAppleMusic)
         await a.library.add_tracks(pl.id, ["4001", "1001", "5002"])
     lines: list[str] = []
     assert await run_refresh("Warehouse", build=build, out=lines.append) == 0
-    assert "Nada foi removido" in lines[0]
+    assert "Nada foi removido" in lines[0] and "1 saem" in lines[0]  # the disliked 5002
     assert fake_apple.playlists[pl.id]["tracks"] == ["4001", "1001", "5002"]
     assert await run_refresh("Missing", build=build, out=lines.append) == 1
 

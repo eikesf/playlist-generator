@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mcp import Client
 
 from apple_music_mcp.config import Credentials
 from apple_music_mcp.container import AppContainer
+from apple_music_mcp.db.history import PlaylistEventRepository, ProposalRepository
+from apple_music_mcp.db.repositories import (
+    Counters,
+    JobRunRepository,
+    SnapshotRepository,
+    TrackInfo,
+    TrackRepository,
+)
 from apple_music_mcp.local_music import (
     SEP,
     MusicAppReader,
@@ -19,8 +28,10 @@ from apple_music_mcp.local_music import (
     parse_stats,
 )
 from apple_music_mcp.models import Playlist
-from apple_music_mcp.refresh import ARCHIVE_SUFFIX, PLANS_KEY, STAGING_SUFFIX, RefreshService, RefreshSettings
+from apple_music_mcp.proposals import ProposalService
+from apple_music_mcp.refresh import ARCHIVE_SUFFIX, RefreshService
 from apple_music_mcp.server import build_server
+from apple_music_mcp.sessions import CurationSessions
 
 from .conftest import build_app
 from .fake_apple import FakeAppleMusic
@@ -112,60 +123,204 @@ async def test_reader_reports_playlists_missing_from_the_music_app() -> None:
     assert reader.calls == [["names"]]  # type: ignore[attr-defined]
 
 
-async def test_plan_with_play_data_suggests_least_played_and_never_touches_main(
+TODAY = date.today()
+
+
+def seed(app: AppContainer, fake: FakeAppleMusic, readings: dict[int, dict[str, tuple[Any, ...]]]) -> None:
+    """Write Music app snapshots: ``{days_ago: {song_id: (played, skipped[, favorited])}}``, oldest first."""
+    tracks, snaps, runs = TrackRepository(app.db), SnapshotRepository(app.db), JobRunRepository(app.db)
+    for days_ago in sorted(readings, reverse=True):
+        with runs.run("snapshot") as (run_id, _):
+            pass
+        with app.db.engine.begin() as conn:
+            counters = {}
+            for sid, values in readings[days_ago].items():
+                song = fake.songs_by_id[sid]
+                tid = tracks.upsert(TrackInfo(song.name, song.artist, music_app_pid=f"P{sid}"), conn)
+                fav = bool(values[2]) if len(values) > 2 else False
+                counters[tid] = Counters(values[0], values[1], fav, False)
+            snaps.record(conn, TODAY - timedelta(days=days_ago), run_id, counters)
+
+
+def week_of_listening(fake: FakeAppleMusic, app: AppContainer) -> None:
+    """60 days of history: 4002 never played lately, 2003 mostly skipped, 3001 a favorite,
+    8001 added 3 days ago, the rest played normally. 5002 is rated "dislike" in the fake."""
+    base = {sid: (20, 0) for sid in MAIN if sid != "8001"}
+    later = {
+        "4001": (30, 0),
+        "2003": (21, 6),
+        "3001": (20, 0, True),
+        "1001": (28, 0),
+        "2002": (25, 1),
+        "5001": (26, 0),
+        "5002": (22, 0),
+        "7001": (24, 0),
+    }
+    seed(app, fake, {60: base, 10: later, 3: {"8001": (0, 0)}})
+
+
+def apple_writes(fake: FakeAppleMusic, since: int) -> list[tuple[str, str]]:
+    return [c for c in fake.calls[since:] if c[0] != "GET"]
+
+
+async def managed_main(app: AppContainer, name: str = "Warehouse") -> Playlist:
+    pl = await _main_playlist(app, name)
+    CurationSessions(app).adopt(pl.id, name, "dj_set")
+    return pl
+
+
+def items_by(plan: dict[str, Any], action: str) -> list[dict[str, Any]]:
+    return [i for i in plan["items"] if i["action"] == action]
+
+
+async def test_plan_is_read_only_and_proposes_skipped_and_unplayed_tracks(
     app: AppContainer, fake_apple: FakeAppleMusic
 ) -> None:
-    pl = await _main_playlist(app)
-    plays = {sid: 10 + i for i, sid in enumerate(MAIN)}
-    plays.update({"4002": 1, "2003": 2, "3001": 0, "8001": 0})  # 3001 favorite, 8001 just added
-    reader = fake_music_app(fake_apple, plays, favorites={"3001"}, recent={"8001"})
-    plan = await RefreshService(app, reader).plan(pl.id)
+    pl = await managed_main(app)
+    week_of_listening(fake_apple, app)
+    app.blacklist_entries.add_artist("Anyma", "nunca mais Anyma")
+    before = len(fake_apple.calls)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
 
-    assert fake_apple.playlists[pl.id]["tracks"] == MAIN  # main untouched
-    assert plan["main_playlist_changed"] is False and plan["play_data"] is True
-    assert [c["id"] for c in plan["rotation_candidates"]] == ["4002", "2003"]  # 20% of 10, least played
-    assert [c["id"] for c in plan["removal_candidates"]] == ["5002"]  # disliked rating
-    staging = plan["staging_playlist"]
-    assert staging["name"] == "Warehouse" + STAGING_SUFFIX
-    added = [c["id"] for c in plan["added_to_staging"]]
-    assert added and fake_apple.playlists[staging["id"]]["tracks"] == added
-    assert not set(added) & set(MAIN)
-    assert not set(added) & {"1001", "2001", "7001", "1002"}  # nothing the user already knows
-    assert app.state.get(PLANS_KEY)[pl.id]["removal_candidates"][0]["id"] == "5002"
+    assert apple_writes(fake_apple, before) == []  # nothing created, nothing edited
+    assert fake_apple.playlists[pl.id]["tracks"] == MAIN and len(fake_apple.playlists) == 1
+    assert plan["kind"] == "refresh" and plan["status"] == "pending_approval"
+    removes = {i["song_id"]: i for i in items_by(plan, "remove")}
+    assert set(removes) == {"2003", "4002", "5002"}
+    assert removes["2003"]["why"] == "often_skipped" and removes["2003"]["skips"] == 6
+    assert removes["4002"]["why"] == "not_played" and removes["4002"]["plays"] == 0
+    assert removes["5002"]["why"] == "disliked"
+    # Never: the favorite (3001), the track added 3 days ago (8001), and nothing is decided yet.
+    assert all(i["decision"] == "pending" for i in plan["items"])
+    adds = items_by(plan, "add")
+    assert adds, "replacements are proposed"
+    remove_item_ids = {i["item_id"] for i in removes.values()}
+    for add in adds:
+        assert add["replaces_item_id"] in remove_item_ids
+        assert add["song_id"] not in MAIN and add["song_id"] not in {"9001", "9002"}  # blacklisted
+    assert plan["summary"]["remove"] == 3
 
 
-async def test_plan_without_play_data_suggests_no_rotation(
+async def test_too_little_history_proposes_no_rotation_and_says_why(
     app: AppContainer, fake_apple: FakeAppleMusic
 ) -> None:
-    pl = await _main_playlist(app)
-    plan = await RefreshService(app, MusicAppReader(system="Linux")).plan(pl.id)
-    assert plan["rotation_candidates"] == [] and plan["play_data"] is False
-    assert any("No play data" in n for n in plan["notes"])
-    assert plan["added_to_staging"]  # staging still gets discoveries
+    pl = await managed_main(app)
+    seed(app, fake_apple, {5: {sid: (20, 0) for sid in MAIN}, 1: {"4001": (25, 0)}})
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    assert {i["song_id"] for i in items_by(plan, "remove")} == {"5002"}  # only the dislike
+    assert any("5 day(s) of play history" in n for n in plan["notes"])
 
 
-async def test_equal_play_counts_do_not_identify_anything(
+async def test_unplayed_playlist_gives_nothing_to_learn(
     app: AppContainer, fake_apple: FakeAppleMusic
 ) -> None:
-    pl = await _main_playlist(app)
-    plan = await RefreshService(app, fake_music_app(fake_apple, {})).plan(pl.id)
-    assert plan["rotation_candidates"] == []
-    assert any("do not tell tracks apart" in n for n in plan["notes"])
+    pl = await managed_main(app)
+    seed(app, fake_apple, {40: {sid: (20, 0) for sid in MAIN}})
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    assert {i["song_id"] for i in items_by(plan, "remove")} == {"5002"}
+    assert any("was not played" in n for n in plan["notes"])
 
 
-async def test_second_plan_reuses_staging_and_does_not_duplicate(
+async def test_no_play_data_at_all(app: AppContainer, fake_apple: FakeAppleMusic) -> None:
+    pl = await managed_main(app)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    assert {i["song_id"] for i in items_by(plan, "remove")} == {"5002"}
+    assert any("0 day(s) of play history" in n for n in plan["notes"])
+
+
+async def test_recently_added_by_the_music_app_is_protected(
     app: AppContainer, fake_apple: FakeAppleMusic
 ) -> None:
-    pl = await _main_playlist(app)
+    pl = await managed_main(app)
+    week_of_listening(fake_apple, app)
+    reader = fake_music_app(fake_apple, {}, recent={"4002"})
+    plan = await RefreshService(app, reader).build_plan(pl.id)
+    assert "4002" not in {i["song_id"] for i in items_by(plan, "remove")}
+
+
+async def test_only_one_open_refresh_per_playlist(app: AppContainer, fake_apple: FakeAppleMusic) -> None:
+    pl = await managed_main(app)
     service = RefreshService(app, MusicAppReader(system="Linux"))
-    first = await service.plan(pl.id, RefreshSettings(new_tracks=2))
-    second = await service.plan(pl.id, RefreshSettings(new_tracks=2))
-    assert first["staging_playlist"]["id"] == second["staging_playlist"]["id"]
-    staged = fake_apple.playlists[first["staging_playlist"]["id"]]["tracks"]
-    assert len(staged) == len(set(staged))
+    first = await service.build_plan(pl.id)
+    again = await service.build_plan(pl.id)
+    assert again["proposal_id"] == first["proposal_id"] and again["already_open"] is True
+    assert len(ProposalRepository(app.db).find(kind="refresh")) == 1
 
 
-async def test_apply_archives_before_removing_and_keeps_order(
+async def test_lifecycle_partial_approval_applies_only_what_was_accepted(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
+    pl = await managed_main(app)
+    week_of_listening(fake_apple, app)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    removes = {i["song_id"]: i for i in items_by(plan, "remove")}
+    replacement = next(
+        a for a in items_by(plan, "add") if a["replaces_item_id"] == removes["4002"]["item_id"]
+    )
+    service = ProposalService(app)
+
+    with pytest.raises(ValueError, match="approved"):
+        await service.apply(plan["proposal_id"])  # still pending: nothing happens
+    assert fake_apple.playlists[pl.id]["tracks"] == MAIN
+
+    accept = [removes["4002"]["item_id"], replacement["item_id"]]
+    others = [i["item_id"] for i in plan["items"] if i["item_id"] not in accept]
+    decided = service.decide(
+        plan["proposal_id"],
+        accept=accept,
+        reject=[(i, "quero manter") for i in others],
+    )
+    assert decided["status"] == "approved"
+    result = await service.apply(plan["proposal_id"])
+
+    main = fake_apple.playlists[pl.id]["tracks"]
+    assert "4002" not in main and replacement["song_id"] in main
+    assert {"2003", "5002"} <= set(main)  # rejected removals stay
+    assert [t for t in main if t != replacement["song_id"]] == [t for t in MAIN if t != "4002"]
+    archive = result["archive_playlist"]
+    assert archive["name"] == "Warehouse" + ARCHIVE_SUFFIX
+    assert fake_apple.playlists[archive["id"]]["tracks"] == ["4002"]
+    assert ProposalRepository(app.db).get(plan["proposal_id"])["status"] == "applied"  # type: ignore[index]
+
+    managed = CurationSessions(app).managed.get(pl.id)
+    assert managed and managed["archive_apple_playlist_id"] == archive["id"]
+    events = PlaylistEventRepository(app.db).history(managed["id"])
+    got = {(e["catalog_id"], e["event"], e["origin"]) for e in events}
+    assert {("4002", "archived", "refresh"), ("4002", "removed", "refresh")} <= got
+    assert (replacement["song_id"], "added", "refresh") in got
+    # A rejected removal is not a track to avoid; rejected additions are.
+    avoid = {t["catalog_id"] for t in CurationSessions(app).start("edit", "x")["avoid"]}
+    assert not avoid & {"2003", "5002"}
+
+
+async def test_rejecting_everything_rejects_the_proposal(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
+    pl = await managed_main(app)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    out = ProposalService(app).decide(plan["proposal_id"], reject_all=True, reason="tudo certo assim")
+    assert out["status"] == "rejected" and all(i["reason"] == "tudo certo assim" for i in out["items"])
+    with pytest.raises(ValueError):
+        await ProposalService(app).apply(plan["proposal_id"])
+    assert fake_apple.playlists[pl.id]["tracks"] == MAIN
+
+
+async def test_refused_removal_keeps_main_and_archive_copy(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
+    fake_apple.remove_variants = set()
+    pl = await managed_main(app)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    service = ProposalService(app)
+    service.decide(plan["proposal_id"], accept_all=True)
+    result = await service.apply(plan["proposal_id"])
+    assert result["status"] == "needs_decision"
+    assert fake_apple.playlists[pl.id]["tracks"] == MAIN
+    assert fake_apple.playlists[result["archive_playlist"]["id"]]["tracks"] == ["5002"]
+    assert ProposalRepository(app.db).get(plan["proposal_id"])["status"] == "approved"  # type: ignore[index]
+
+
+async def test_manual_apply_archives_before_removing_and_keeps_order(
     app: AppContainer, fake_apple: FakeAppleMusic
 ) -> None:
     pl = await _main_playlist(app)
@@ -182,56 +337,20 @@ async def test_apply_archives_before_removing_and_keeps_order(
     assert fake_apple.playlists[archive["id"]]["tracks"] == ["5002", "2002"]
 
 
-async def test_apply_when_removal_is_refused_keeps_everything(
+async def test_archive_that_cannot_be_verified_removes_nothing(
     app: AppContainer, fake_apple: FakeAppleMusic
 ) -> None:
-    fake_apple.remove_variants = set()
     pl = await _main_playlist(app)
-    result = await RefreshService(app, MusicAppReader(system="Linux")).apply(
-        pl.id, "dj_set", remove_ids=["5002"]
-    )
-    assert result["removed"]["edit"]["status"] == "needs_decision"
+    service = RefreshService(app, MusicAppReader(system="Linux"))
+    original = app.library.add_tracks
+
+    async def lossy_add(playlist_id: str, ids: list[str], kind: str = "songs") -> int:
+        return 0 if playlist_id != pl.id else await original(playlist_id, ids, kind)
+
+    app.library.add_tracks = lossy_add  # type: ignore[method-assign, assignment]
+    with pytest.raises(Exception, match="archive"):
+        await service.apply(pl.id, "dj_set", remove_ids=["5002"])
     assert fake_apple.playlists[pl.id]["tracks"] == MAIN
-    assert fake_apple.playlists[result["archive_playlist"]["id"]]["tracks"] == ["5002"]
-
-
-async def test_promote_inserts_at_best_position_and_leaves_staging(
-    app: AppContainer, fake_apple: FakeAppleMusic
-) -> None:
-    pl = await _main_playlist(app)
-    service = RefreshService(app, MusicAppReader(system="Linux"))
-    plan = await service.plan(pl.id, RefreshSettings(new_tracks=3))
-    staged = [c["id"] for c in plan["added_to_staging"]]
-    pick = staged[0]
-    song = fake_apple.songs_by_id[pick]
-    result = await service.apply(
-        pl.id,
-        "dj_set",
-        promote=[{"id": pick, "artist": song.artist, "title": song.name, "bpm": 121, "energy": 2.5}],
-        current_estimates=[
-            {"id": "4001", "artist": "Stephan Bodzin", "title": "Singularity", "bpm": 122, "energy": 3}
-        ],
-    )
-    main = fake_apple.playlists[pl.id]["tracks"]
-    assert pick in main and [i for i in main if i != pick] == MAIN  # existing order intact
-    assert result["promoted"]["inserted"][0]["id"] == pick
-    assert pick not in fake_apple.playlists[plan["staging_playlist"]["id"]]["tracks"]
-
-
-async def test_promotion_candidates_come_from_love_and_plays(
-    app: AppContainer, fake_apple: FakeAppleMusic
-) -> None:
-    pl = await _main_playlist(app)
-    service = RefreshService(app, MusicAppReader(system="Linux"))
-    plan = await service.plan(pl.id, RefreshSettings(new_tracks=3))
-    staged = [c["id"] for c in plan["added_to_staging"]]
-    fake_apple.ratings[staged[0]] = 1
-    plays = {staged[1]: 5}
-    plan2 = await RefreshService(app, fake_music_app(fake_apple, plays)).plan(
-        pl.id, RefreshSettings(new_tracks=0)
-    )
-    why = {c["id"]: c["why"] for c in plan2["promotion_candidates"]}
-    assert why[staged[0]] == "loved" and why[staged[1]] == "played 5x"
 
 
 async def test_refresh_tools_via_mcp(fake_apple: FakeAppleMusic, tmp_path: Path) -> None:
@@ -255,9 +374,7 @@ async def test_refresh_tools_via_mcp(fake_apple: FakeAppleMusic, tmp_path: Path)
                 "apply_playlist_refresh", {"playlist_id": pid, "purpose": "dj_set", "remove_ids": ["5002"]}
             )
         ).structured_content
-    assert (
-        plan["removal_candidates"][0]["id"] == "5002" and fake_apple.playlists[pid]["tracks"] == MAIN or True
-    )
+    assert plan["kind"] == "refresh" and {i["song_id"] for i in plan["items"]} >= {"5002"}
     assert empty.is_error
     assert "5002" not in fake_apple.playlists[pid]["tracks"]
     assert applied["archive_playlist"]["name"] == "Set" + ARCHIVE_SUFFIX

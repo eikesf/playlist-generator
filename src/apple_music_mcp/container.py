@@ -97,6 +97,10 @@ class AppContainer:
             providers.append(DeezerProvider(self._http, retry=retry, sleep=sleep))
         self.bpm = BpmService(providers, self.state)
         self.music_app = music_app or MusicAppReader()
+        if isinstance(self.state, SettingsStore):
+            from .legacy import import_legacy_state
+
+            import_legacy_state(self)
 
     def storefront(self) -> str:
         return self.credentials.storefront
