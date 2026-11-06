@@ -7,7 +7,7 @@ import asyncio
 import httpx
 
 from .apple.catalog import CatalogService
-from .apple.http import RetryPolicy, Sleep
+from .apple.http import RateLimiter, RetryPolicy, Sleep
 from .apple.itunes import ITunesSearch
 from .apple.library import LibraryService
 from .apple.taste import TasteService
@@ -15,10 +15,15 @@ from .apple.tokens import DeveloperTokenProvider, TokenScraper, scrape_developer
 from .apple.transport import AmpTransport
 from .bpm.providers import BpmProvider, DeezerProvider, GetSongBpmProvider
 from .bpm.service import BpmService
-from .config import Credentials, CredentialStore, StateStore
+from .config import STATE_FILE, Credentials, CredentialStore, config_dir
+from .db import Database
+from .db.cache import ResponseCache
+from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
 from .local_music import MusicAppReader
+from .ports import KeyValueStore
+from .settings import AppSettings
 
 
 class AppContainer:
@@ -27,7 +32,8 @@ class AppContainer:
         credentials: Credentials | None = None,
         *,
         store: CredentialStore | None = None,
-        state: StateStore | None = None,
+        state: KeyValueStore | None = None,
+        db: Database | None = None,
         http: httpx.AsyncClient | None = None,
         persist: bool = True,
         retry: RetryPolicy | None = None,
@@ -35,17 +41,36 @@ class AppContainer:
         token_scraper: TokenScraper = scrape_developer_token,
         use_deezer: bool = True,
         music_app: MusicAppReader | None = None,
+        settings: AppSettings | None = None,
     ):
+        self.settings = settings or AppSettings.from_env()
         self.store = store or CredentialStore()
-        self.state = state or StateStore()
+        self.db: Database = db or Database.open()
+        if state is None:
+            kv = SettingsStore(self.db)
+            import_state_file(kv, config_dir() / STATE_FILE)
+            state = kv
+        self.state: KeyValueStore = state
         self.credentials = credentials or self.store.load()
         self._http = http or httpx.AsyncClient(timeout=30, follow_redirects=True)
         self._owns_http = http is None
         self.tokens = DeveloperTokenProvider(
             self.credentials, self._http, store=self.store if persist else None, scraper=token_scraper
         )
-        self.transport = AmpTransport(self._http, self.credentials, self.tokens, retry, sleep)
-        self.itunes = ITunesSearch(self._http, self.storefront, retry, sleep)
+        # One limiter per service, shared by every caller (guide §4.1: ~5 req/s, 3 in flight).
+        self.apple_limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)
+        self.cache = ResponseCache(self.db)
+        self.transport = AmpTransport(
+            self._http,
+            self.credentials,
+            self.tokens,
+            retry,
+            sleep,
+            enabled=self.settings.apple_web_api_enabled,
+            limiter=self.apple_limiter,
+            cache=self.cache,
+        )
+        self.itunes = ITunesSearch(self._http, self.storefront, retry, sleep, limiter=self.apple_limiter)
         self.catalog = CatalogService(self.transport, self.storefront, fallback=self.itunes)
         self.library = LibraryService(self.transport)
         self.editor = PlaylistEditor(self.library, self.state)
@@ -71,9 +96,15 @@ class AppContainer:
     def set_persist(self, persist: bool) -> None:
         self.tokens.store = self.store if persist else None
 
+    @property
+    def http(self) -> httpx.AsyncClient:
+        """The shared HTTP client (for monitoring and other non-Apple calls)."""
+        return self._http
+
     async def aclose(self) -> None:
         if self._owns_http:
             await self._http.aclose()
+        self.db.dispose()
 
     async def __aenter__(self) -> AppContainer:
         return self

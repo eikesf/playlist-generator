@@ -17,11 +17,15 @@ from datetime import datetime
 
 from .text import normalize, primary_artist
 
+LIBRARY_TIMEOUT = 300  # a large library takes a while; nothing else waits on this job
 SEP = "\x1f"  # unit separator: never appears in titles
 SCRIPT = """
 on run argv
   set mode to item 1 of argv
   set out to ""
+  if mode is "library" then
+    return my libraryStats()
+  end if
   if mode is "names" then
     tell application "Music"
       repeat with p in user playlists
@@ -51,11 +55,53 @@ on run argv
         set added to ((date added of t) as «class isot») as string
       end try
       set out to out & (name of t) & "{sep}" & (artist of t) & "{sep}" & (played count of t) & "{sep}" & ¬
-        (skipped count of t) & "{sep}" & fav & "{sep}" & dis & "{sep}" & added & linefeed
+        (skipped count of t) & "{sep}" & fav & "{sep}" & dis & "{sep}" & added & "{sep}" & ¬
+        (persistent ID of t) & linefeed
     end repeat
   end tell
   return out
 end run
+
+on libraryStats()
+  tell application "Music"
+    set lib to library playlist 1
+    set pids to persistent ID of every track of lib
+    set nms to name of every track of lib
+    set arts to artist of every track of lib
+    set albs to album of every track of lib
+    set gens to genre of every track of lib
+    set durs to duration of every track of lib
+    set plays to played count of every track of lib
+    set skips to skipped count of every track of lib
+    set favs to {}
+    try
+      set favs to favorited of every track of lib
+    on error
+      try
+        set favs to loved of every track of lib
+      end try
+    end try
+    set diss to {}
+    try
+      set diss to disliked of every track of lib
+    end try
+  end tell
+  set rows to {}
+  repeat with i from 1 to (count of pids)
+    set fav to "false"
+    if (count of favs) is greater than or equal to i then set fav to (item i of favs) as string
+    set dis to "false"
+    if (count of diss) is greater than or equal to i then set dis to (item i of diss) as string
+    set end of rows to ((item i of pids) as string) & "{sep}" & ((item i of nms) as string) & "{sep}" & ¬
+      ((item i of arts) as string) & "{sep}" & ((item i of albs) as string) & "{sep}" & ¬
+      ((item i of gens) as string) & "{sep}" & ((item i of durs) as string) & "{sep}" & ¬
+      ((item i of plays) as string) & "{sep}" & ((item i of skips) as string) & "{sep}" & fav & "{sep}" & dis
+  end repeat
+  set AppleScript's text item delimiters to linefeed
+  set joined to rows as string
+  set AppleScript's text item delimiters to ""
+  return joined
+end libraryStats
 """.replace("{sep}", '" & (ASCII character 31) & "')
 
 Runner = Callable[[list[str]], Awaitable[tuple[int, str, str]]]
@@ -83,6 +129,7 @@ class TrackStats:
     favorited: bool
     disliked: bool
     date_added: datetime | None
+    persistent_id: str | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -103,10 +150,11 @@ async def _osascript(args: list[str]) -> tuple[int, str, str]:
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        out, err = await asyncio.wait_for(proc.communicate(SCRIPT.encode()), timeout=60)
+        timeout = LIBRARY_TIMEOUT if args and args[0] == "library" else 60
+        out, err = await asyncio.wait_for(proc.communicate(SCRIPT.encode()), timeout=timeout)
     except TimeoutError as exc:
         proc.kill()
-        raise MusicAppUnavailable("The Music app did not answer within 60 s") from exc
+        raise MusicAppUnavailable(f"The Music app did not answer within {timeout} s") from exc
     return proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
@@ -122,6 +170,7 @@ def parse_stats(output: str) -> list[TrackStats]:
         if len(parts) < 7:
             continue
         name, artist, played, skipped, fav, dis, added = parts[:7]
+        pid = parts[7].strip() if len(parts) > 7 and parts[7].strip() else None
         try:
             date_added = datetime.fromisoformat(added) if added else None
         except ValueError:
@@ -135,9 +184,70 @@ def parse_stats(output: str) -> list[TrackStats]:
                 favorited=fav.strip().lower() == "true",
                 disliked=dis.strip().lower() == "true",
                 date_added=date_added,
+                persistent_id=pid,
             )
         )
     return stats
+
+
+MISSING = "missing value"
+
+
+@dataclass
+class LibraryTrack:
+    """One track of the whole Music library with its cumulative counters (daily snapshot input)."""
+
+    persistent_id: str
+    name: str
+    artist: str
+    album: str | None
+    genre: str | None
+    duration_ms: int | None
+    played: int
+    skipped: int
+    favorited: bool
+    disliked: bool
+
+
+def _text(value: str) -> str | None:
+    value = value.strip()
+    return None if not value or value == MISSING else value
+
+
+def _int(value: str) -> int:
+    try:
+        return int(float(value.strip().replace(",", ".")))
+    except ValueError:
+        return 0
+
+
+def parse_library(output: str) -> list[LibraryTrack]:
+    tracks = []
+    for line in output.splitlines():
+        parts = line.split(SEP)
+        if len(parts) < 10 or not parts[0].strip():
+            continue
+        pid, name, artist, album, genre, duration, played, skipped, fav, dis = parts[:10]
+        seconds = duration.strip().replace(",", ".")  # the decimal separator follows the Mac's locale
+        try:
+            duration_ms: int | None = round(float(seconds) * 1000)
+        except ValueError:
+            duration_ms = None
+        tracks.append(
+            LibraryTrack(
+                persistent_id=pid.strip(),
+                name=_text(name) or "",
+                artist=_text(artist) or "",
+                album=_text(album),
+                genre=_text(genre),
+                duration_ms=duration_ms,
+                played=_int(played),
+                skipped=_int(skipped),
+                favorited=fav.strip().lower() == "true",
+                disliked=dis.strip().lower() == "true",
+            )
+        )
+    return tracks
 
 
 class MusicAppReader:
@@ -174,6 +284,10 @@ class MusicAppReader:
             f"Playlist {playlist_name!r} is not among the Music app's user playlists "
             "(for example, a playlist added from the Apple Music catalog)."
         )
+
+    async def library_stats(self) -> list[LibraryTrack]:
+        """Every track in the Music library with play/skip counters (read-only, one AppleScript call)."""
+        return parse_library(await self._run(["library"]))
 
     async def playlist_stats(self, playlist_name: str) -> list[TrackStats]:
         name = await self.resolve_name(playlist_name)

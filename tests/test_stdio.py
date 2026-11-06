@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from mcp import Client, StdioServerParameters
 
 
-async def test_stdio_server_legacy_handshake(tmp_path):
+async def test_stdio_server_legacy_handshake(tmp_path: Path) -> None:
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "apple_music_mcp"],

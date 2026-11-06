@@ -9,7 +9,7 @@ Personal MCP server that lets Claude create and maintain Apple Music playlists. 
 - `docs/adr/` — architecture decisions.
 
 ## Hard rules
-1. **Never print, log, commit or paste secrets**: the `media-user-token`, the developer JWT, `credentials.json`, `.env`, ntfy topics, API keys. When showing command output, redact anything that looks like a token.
+1. **Never print, log, commit or paste secrets** (`redact.py` is the last line of defence for logs and alerts, not a licence): the `media-user-token`, the developer JWT, `credentials.json`, `.env`, ntfy topics, API keys. When showing command output, redact anything that looks like a token.
 2. **Protect the owner's Apple account.** Do not run write operations against Apple Music unless the owner asked for them in this session (`doctor --write` creates and deletes one test playlist). Keep request volume low; never loop over hundreds of API calls.
 3. **No paid services or APIs.** Scheduled jobs are deterministic code (no LLM calls).
 4. Everything in **English** (code, identifiers, commits, PRs, issues, docs) except `README.pt-BR.md`.
@@ -26,6 +26,9 @@ uv tool install --force --reinstall --no-cache .  # install the CLI (without --r
 uv run python scripts/diagnose_token.py  # bounded, masked live diagnostic of developer-token discovery
 apple-music-mcp status                   # masked credentials
 apple-music-mcp doctor [--write]         # live checks against Apple
+apple-music-mcp run <job>                # one scheduled job now: doctor | snapshot | recent_played | backup | heartbeat
+apple-music-mcp schedule install         # launchd agents for all jobs (times from ~/.config/apple-music-mcp/.env)
+apple-music-mcp pause [--until YYYY-MM-DD] / resume   # trips: jobs skip, alerts stay quiet
 ```
 `apple-music-mcp login` asks for a hidden token: the **owner runs it in Terminal**, not through Claude Code.
 
@@ -43,7 +46,7 @@ Layered, with dependency inversion (ADR 0007):
 - `commands/` + `cli.py`: CLI subcommands (`serve`, `login`, `status`, `doctor`, `install-claude`, `refresh`, `schedule-refresh`, `finish-pending`, `set-bpm-key`). `doctor` is a list of `Check` objects.
 - `server.py`: `INSTRUCTIONS` string describing the intended tool flow (plan → resolve → order → create; insert vs resequence).
 
-State lives in `~/.config/apple-music-mcp/` (`credentials.json` 0600, `state.json` for remembered edit strategies/removal shapes, BPM cache, etc.).
+State lives in `~/.config/apple-music-mcp/`: `credentials.json` (0600) and `apple-music-mcp.db` (SQLite, 0600). The database schema is `db/schema.py`, mirroring the approved ERD in `docs/data-model.md`; every schema change needs an Alembic migration in `db/migrations/versions/` (`tests/test_db.py` checks they match). `Database.open()` applies pending migrations. Small state (remembered edit strategies, removal shapes, caches) goes through `KeyValueStore` (`ports.py`), backed by the `setting` table; a legacy `state.json` is imported once and renamed to `state.json.imported`.
 
 ### Behavioral invariants (from ADRs, enforced by tests)
 

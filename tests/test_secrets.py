@@ -31,12 +31,12 @@ def tracked_files() -> list[str]:
     return [f for f in out.splitlines() if f]
 
 
-def test_no_secret_files_are_tracked():
+def test_no_secret_files_are_tracked() -> None:
     bad = [f for f in tracked_files() if FORBIDDEN_FILES.search(f) and f not in ALLOWED_FILES]
     assert not bad, f"secret-like files are tracked: {bad}"
 
 
-def test_no_secret_values_in_tracked_files():
+def test_no_secret_values_in_tracked_files() -> None:
     hits = []
     for name in tracked_files():
         path = ROOT / name
@@ -47,7 +47,7 @@ def test_no_secret_values_in_tracked_files():
     assert not hits, "possible credentials committed:\n" + "\n".join(hits)
 
 
-def test_gitignore_blocks_credentials():
+def test_gitignore_blocks_credentials() -> None:
     probes = [
         ".env",
         ".env.local",
@@ -61,7 +61,7 @@ def test_gitignore_blocks_credentials():
     assert subprocess.run(["git", "check-ignore", ".env.example"], cwd=ROOT).returncode == 1
 
 
-def test_patterns_detect_real_shapes():
+def test_patterns_detect_real_shapes() -> None:
     fake_jwt = "eyJ" + "a" * 20 + ".eyJ" + "b" * 20 + "." + "c" * 20
     assert PATTERNS["JWT (developer token)"].search(fake_jwt)
     assert PATTERNS["media-user-token value"].search('"media-user-token": "' + "A" * 60 + '"')

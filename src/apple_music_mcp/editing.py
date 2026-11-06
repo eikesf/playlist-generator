@@ -25,8 +25,8 @@ from typing import Any, Protocol
 
 from .apple.errors import AppleMusicError, AuthError
 from .apple.library import LibraryService
-from .config import StateStore
 from .models import Playlist, PlaylistEntry
+from .ports import KeyValueStore
 
 STATE_KEY = "playlist_edit_strategy"
 UNSUPPORTED_STATUSES = (400, 403, 404, 405, 501)
@@ -284,7 +284,7 @@ class PlaylistEditor:
     def __init__(
         self,
         library: LibraryService,
-        state: StateStore,
+        state: KeyValueStore,
         strategies: list[EditStrategy] | None = None,
     ):
         self.library = library

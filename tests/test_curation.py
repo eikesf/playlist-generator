@@ -27,11 +27,11 @@ from apple_music_mcp.curation.sequencer import Sequencer, TrackFeatures, bpm_dis
         ("something unknown", "exploration"),
     ],
 )
-def test_profile_resolution_pt_and_en(text, key):
+def test_profile_resolution_pt_and_en(text: str, key: str) -> None:
     assert get_profile(text).key == key
 
 
-def test_every_profile_is_consistent():
+def test_every_profile_is_consistent() -> None:
     for p in PROFILES.values():
         assert abs(sum(a.share for a in p.acts) - 1) < 1e-9
         assert p.bpm_range[0] < p.bpm_range[1]
@@ -40,20 +40,20 @@ def test_every_profile_is_consistent():
         assert p.energy_at(1) == p.acts[-1].energy_end
 
 
-def test_study_profile_has_no_peaks_and_workout_stays_high():
+def test_study_profile_has_no_peaks_and_workout_stays_high() -> None:
     study = PROFILES["study"]
     assert max(study.energy_at(t / 100) for t in range(101)) <= 4
     workout = PROFILES["workout"]
     assert min(workout.energy_at(t / 100) for t in range(15, 85)) >= 8
 
 
-def test_distribute_is_exact_and_proportional():
+def test_distribute_is_exact_and_proportional() -> None:
     assert sum(distribute(19, [0.15, 0.2, 0.25, 0.25, 0.15])) == 19
     assert distribute(10, [0.1, 0.8, 0.1]) == [1, 8, 1]
     assert distribute(2, [0.5, 0.3, 0.2]) == [1, 1, 1]  # every act gets at least one track
 
 
-def test_plan_two_hour_techno_set():
+def test_plan_two_hour_techno_set() -> None:
     plan = plan_playlist(get_profile("set de techno"), duration_minutes=120).to_dict()
     assert plan["purpose"] == "dj_set"
     assert plan["total_tracks"] == 18  # 120 / 6.5
@@ -63,13 +63,13 @@ def test_plan_two_hour_techno_set():
     assert peak["target_bpm"][1] == 140 and peak["energy"] == [8.5, 10]
 
 
-def test_plan_defaults_and_track_count():
+def test_plan_defaults_and_track_count() -> None:
     assert plan_playlist(PROFILES["exploration"]).total_tracks == 75
     plan = plan_playlist(PROFILES["workout"], track_count=20)
     assert plan.total_tracks == 20 and round(plan.total_minutes) == 76
 
 
-def test_bpm_distance_half_double_time():
+def test_bpm_distance_half_double_time() -> None:
     assert bpm_distance(87, 174) == 0
     assert bpm_distance(124, 128) == 4
 
@@ -97,7 +97,7 @@ def _techno_pool() -> list[TrackFeatures]:
     ]
 
 
-def test_dj_set_follows_the_energy_curve():
+def test_dj_set_follows_the_energy_curve() -> None:
     pool = _techno_pool()
     random.Random(7).shuffle(pool)
     result = order_tracks(PROFILES["dj_set"], pool)
@@ -113,7 +113,7 @@ def test_dj_set_follows_the_energy_curve():
     assert all(names[i] != names[i + 1] for i in range(len(names) - 1))  # no back-to-back artist
 
 
-def test_order_is_deterministic_regardless_of_input_order():
+def test_order_is_deterministic_regardless_of_input_order() -> None:
     a, b = _techno_pool(), _techno_pool()
     random.Random(1).shuffle(a)
     random.Random(2).shuffle(b)
@@ -121,7 +121,7 @@ def test_order_is_deterministic_regardless_of_input_order():
     assert order_tracks(profile, a)["song_ids_in_order"] == order_tracks(profile, b)["song_ids_in_order"]
 
 
-def test_workout_puts_low_energy_tracks_at_the_edges():
+def test_workout_puts_low_energy_tracks_at_the_edges() -> None:
     energies = [5, 6, 8, 8, 9, 9, 8, 9, 8, 9, 8.5, 9, 8, 5, 4]  # 2 warm-up, 11 high, 2 cooldown
     tracks = [
         TrackFeatures(id=str(i), artist=f"A{i}", bpm=125 + e, energy=e, duration_ms=210_000)
@@ -133,14 +133,14 @@ def test_workout_puts_low_energy_tracks_at_the_edges():
     assert min(r["energy"] for r in rows[2:-2]) >= 8  # the middle never dips
 
 
-def test_forced_act_is_respected():
+def test_forced_act_is_respected() -> None:
     pool = _techno_pool()
     pool[0].act = "Peak"  # Stephan Bodzin energy 3 forced into the peak
     rows = order_tracks(PROFILES["dj_set"], pool)["tracks"]
     assert next(r for r in rows if r["id"] == "a")["act"] == "Peak"
 
 
-def test_missing_estimates_are_tolerated_and_reported():
+def test_missing_estimates_are_tolerated_and_reported() -> None:
     pool = _techno_pool()
     pool[3].bpm = pool[3].energy = None
     result = order_tracks(PROFILES["dj_set"], pool)
@@ -148,13 +148,13 @@ def test_missing_estimates_are_tolerated_and_reported():
     assert any("no BPM/energy" in w for w in result["warnings"])
 
 
-def test_duplicates_and_tiny_inputs():
+def test_duplicates_and_tiny_inputs() -> None:
     t = TrackFeatures(id="x", artist="A", bpm=120, energy=5)
     assert Sequencer(PROFILES["chill"]).order([t, t]) == [t]
     assert order_tracks(PROFILES["chill"], [])["song_ids_in_order"] == []
 
 
-def test_sequencing_100_tracks_is_fast():
+def test_sequencing_100_tracks_is_fast() -> None:
     rnd = random.Random(3)
     tracks = [
         TrackFeatures(

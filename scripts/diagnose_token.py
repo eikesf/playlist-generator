@@ -15,6 +15,7 @@ import base64
 import json
 import re
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import unquote
 
 import httpx
@@ -42,7 +43,7 @@ def mask(token: str) -> str:
     return f"{token[:8]}... ({len(token)} chars)"
 
 
-def decode_part(part: str) -> dict | None:
+def decode_part(part: str) -> dict[str, Any] | None:
     try:
         data = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
     except (ValueError, json.JSONDecodeError):

@@ -1,41 +1,47 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from mcp import Client
 
 from apple_music_mcp.bpm.service import align_octave
 from apple_music_mcp.config import Credentials
+from apple_music_mcp.container import AppContainer
 from apple_music_mcp.server import build_server
 
 from .conftest import build_app
+from .fake_apple import FakeAppleMusic
 
 
-def test_align_octave():
+def test_align_octave() -> None:
     assert align_octave(64, 128) == 128
     assert align_octave(174, 87) == 87
     assert align_octave(126, 128) == 126
     assert align_octave(126, None) == 126
 
 
-async def test_deezer_provides_bpm_without_key(app, fake_apple):
+async def test_deezer_provides_bpm_without_key(app: AppContainer, fake_apple: FakeAppleMusic) -> None:
     fake_apple.deezer_bpm = {"1001": 132.0}
     match = await app.bpm.lookup_one("1001", "Charlotte de Witte", "Doppler")
     assert match and match.bpm == 132.0 and match.source == "deezer"
     assert app.bpm.available == ["deezer"]
 
 
-async def test_zero_bpm_means_unknown_and_misses_are_cached(app, fake_apple):
+async def test_zero_bpm_means_unknown_and_misses_are_cached(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
     assert await app.bpm.lookup_one("2002", "Amelie Lens", "Feel It") is None  # bpm 0 in Deezer
     calls = len(fake_apple.external_calls)
     assert await app.bpm.lookup_one("2002", "Amelie Lens", "Feel It") is None
     assert len(fake_apple.external_calls) == calls  # cached miss, no new request
 
 
-async def test_wrong_song_is_never_used(app, fake_apple):
+async def test_wrong_song_is_never_used(app: AppContainer, fake_apple: FakeAppleMusic) -> None:
     fake_apple.deezer_bpm = {"4003": 99.0}  # only the karaoke version has a bpm
     assert await app.bpm.lookup_one("4001", "Stephan Bodzin", "Singularity") is None
 
 
-async def test_getsongbpm_first_when_key_configured(fake_apple):
+async def test_getsongbpm_first_when_key_configured(fake_apple: FakeAppleMusic) -> None:
     fake_apple.getsongbpm_tempo = {"5001": "125"}
     fake_apple.deezer_bpm = {"5001": 130.0, "1001": 132.0}
     creds = Credentials(media_user_token=fake_apple.user_token, getsongbpm_api_key=fake_apple.getsongbpm_key)
@@ -43,11 +49,14 @@ async def test_getsongbpm_first_when_key_configured(fake_apple):
         assert a.bpm.available == ["getsongbpm", "deezer"]
         gravity = await a.bpm.lookup_one("5001", "Boris Brejcha", "Gravity")
         doppler = await a.bpm.lookup_one("1001", "Charlotte de Witte", "Doppler")  # not in GetSongBPM
+    assert gravity is not None and doppler is not None
     assert (gravity.bpm, gravity.source) == (125.0, "getsongbpm")
     assert (doppler.bpm, doppler.source) == (132.0, "deezer")
 
 
-async def test_measured_bpm_replaces_estimates_in_order_tracks(fake_apple, tmp_path):
+async def test_measured_bpm_replaces_estimates_in_order_tracks(
+    fake_apple: FakeAppleMusic, tmp_path: Path
+) -> None:
     fake_apple.deezer_bpm = {"1001": 66.0, "4001": 121.0}  # 66 = half time of 132
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
     server = build_server(lambda: build_app(creds))
@@ -73,6 +82,6 @@ async def test_measured_bpm_replaces_estimates_in_order_tracks(fake_apple, tmp_p
     assert looked["found"] == 2 and looked["providers"] == ["deezer"]
 
 
-def test_getsongbpm_key_is_masked_in_status():
+def test_getsongbpm_key_is_masked_in_status() -> None:
     creds = Credentials(getsongbpm_api_key="k" * 32)
     assert "k" * 32 not in str(creds.redacted())

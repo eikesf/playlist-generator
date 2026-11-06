@@ -27,3 +27,14 @@ USER_TOKEN_HELP = (
     "(or set APPLE_MUSIC_USER_TOKEN) with the `media-user-token` cookie from music.apple.com."
 )
 DEV_TOKEN_HELP = "Apple Music rejected the developer token. Re-run `apple-music-mcp login`."
+
+
+class WebApiDisabled(AppleMusicError):
+    """The owner turned the web-player API off (``APPLE_WEB_API_ENABLED=false``, risk assessment §5.8)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The Apple Music web API is turned off "
+            "(APPLE_WEB_API_ENABLED=false in ~/.config/apple-music-mcp/.env). "
+            "Catalog search falls back to the iTunes Search API; library and playlist changes are off."
+        )

@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from .models import Song
+
+
+class KeyValueStore(Protocol):
+    """Small non-secret state (remembered strategies, caches). Backed by the ``setting`` table."""
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+    def set(self, key: str, value: Any) -> None: ...
 
 
 class SongSearcher(Protocol):

@@ -3,17 +3,51 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
-from typing import Any
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any, Protocol
 
 import httpx
 
 from ..config import Credentials
-from .errors import DEV_TOKEN_HELP, USER_TOKEN_HELP, AppleMusicError, AuthError
-from .http import BROWSER_UA, RetryPolicy, Sleep, safe_json, send_with_retry
+from ..db.cache import cache_key
+from .errors import DEV_TOKEN_HELP, USER_TOKEN_HELP, AppleMusicError, AuthError, WebApiDisabled
+from .http import BROWSER_UA, RateLimiter, RetryPolicy, Sleep, safe_json, send_with_retry
 from .tokens import DeveloperTokenProvider
 
 AMP_BASE = "https://amp-api.music.apple.com"
+
+
+@dataclass(frozen=True)
+class CacheRule:
+    namespace: str
+    pattern: re.Pattern[str]
+    ttl: timedelta
+
+
+# What may be served from the cache (guide §4.1). Playlists, storefront and recently played are never
+# cached: edits must always see Apple's current state. Any write under /v1/me/library empties "library".
+CACHE_RULES = (
+    CacheRule("catalog", re.compile(r"^/v1/catalog/[^/]+/(search|songs|artists)"), timedelta(days=7)),
+    CacheRule("library", re.compile(r"^/v1/me/library/songs"), timedelta(hours=24)),
+    CacheRule("ratings", re.compile(r"^/v1/me/ratings/"), timedelta(hours=24)),
+)
+
+
+class Cache(Protocol):
+    def get(self, key: str) -> Any | None: ...
+
+    def set(self, key: str, payload: Any, ttl: timedelta) -> None: ...
+
+    def invalidate(self, namespace: str) -> int: ...
+
+
+def cache_rule(method: str, path: str) -> CacheRule | None:
+    if method != "GET":
+        return None
+    return next((rule for rule in CACHE_RULES if rule.pattern.match(path)), None)
 
 
 class AmpTransport:
@@ -27,7 +61,13 @@ class AmpTransport:
         tokens: DeveloperTokenProvider,
         retry: RetryPolicy | None = None,
         sleep: Sleep = asyncio.sleep,
+        enabled: bool = True,
+        limiter: RateLimiter | None = None,
+        cache: Cache | None = None,
     ):
+        self.enabled = enabled
+        self._limiter = limiter or RateLimiter(sleep=sleep)
+        self._cache = cache
         self._http = http
         self._credentials = credentials
         self._tokens = tokens
@@ -57,6 +97,24 @@ class AmpTransport:
         json: Any = None,
         user: bool = False,
     ) -> Any:
+        if not self.enabled:
+            raise WebApiDisabled()
+        rule = cache_rule(method, path) if self._cache else None
+        key = cache_key(rule.namespace, path, params) if rule else None
+        if key and self._cache:
+            hit = self._cache.get(key)
+            if hit is not None:
+                return hit
+        result = await self._request(method, path, params=params, json=json, user=user)
+        if key and rule and self._cache and result is not None:
+            self._cache.set(key, result, rule.ttl)
+        if method != "GET" and self._cache and path.startswith("/v1/me/library"):
+            self._cache.invalidate("library")
+        return result
+
+    async def _request(
+        self, method: str, path: str, *, params: dict[str, Any] | None, json: Any, user: bool
+    ) -> Any:
         refreshed = False
         while True:
             dev_token = await self._tokens.get()
@@ -67,7 +125,8 @@ class AmpTransport:
                     method, AMP_BASE + path, params=params, json=json, headers=headers
                 )
 
-            resp = await send_with_retry(send, self._retry, self._sleep)
+            async with self._limiter:
+                resp = await send_with_retry(send, self._retry, self._sleep)
             if resp.status_code == 401 and not refreshed:
                 # The web-player developer token rotates: scrape a fresh one and retry once.
                 refreshed = True

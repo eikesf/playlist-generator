@@ -1,8 +1,10 @@
 """Local configuration and credential storage.
 
-Credentials live in ``~/.config/apple-music-mcp/credentials.json`` (override the directory with
-``APPLE_MUSIC_MCP_CONFIG_DIR``). The file is written with 0600 permissions. Environment variables
-take precedence over the file so the MCP host config can inject tokens if preferred:
+Secrets (the Apple Music token, the cached developer token, the GetSongBPM key) live in the macOS
+Keychain when it is available (``secrets.py``); the rest of the credentials, and the secrets when no
+keychain exists, live in ``~/.config/apple-music-mcp/credentials.json`` with 0600 permissions (override
+the directory with ``APPLE_MUSIC_MCP_CONFIG_DIR``). Environment variables take precedence so the MCP
+host config can inject tokens if preferred:
 
 - ``APPLE_MUSIC_USER_TOKEN``: the ``media-user-token`` cookie from music.apple.com
 - ``APPLE_MUSIC_DEVELOPER_TOKEN``: the web-player developer JWT (normally scraped automatically)
@@ -18,6 +20,9 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
+
+from .secrets import SECRET_FIELDS, SERVICE, SecretBackend, default_backend
 
 ENV_CONFIG_DIR = "APPLE_MUSIC_MCP_CONFIG_DIR"
 ENV_USER_TOKEN = "APPLE_MUSIC_USER_TOKEN"
@@ -28,6 +33,7 @@ ENV_GETSONGBPM_KEY = "GETSONGBPM_API_KEY"
 DEFAULT_STOREFRONT = "br"
 CREDENTIALS_FILE = "credentials.json"
 STATE_FILE = "state.json"
+_DEFAULT = object()  # sentinel: "pick the default secret backend"
 
 
 def config_dir() -> Path:
@@ -87,7 +93,7 @@ class Credentials:
             return False
         return exp - margin > (now if now is not None else time.time())
 
-    def redacted(self) -> dict:
+    def redacted(self) -> dict[str, Any]:
         exp = self.developer_token_expires_at
         return {
             "media_user_token": mask(self.media_user_token),
@@ -126,7 +132,7 @@ def load_credentials(path: Path | None = None) -> Credentials:
     return creds
 
 
-def write_private_json(path: Path, data: dict) -> Path:
+def write_private_json(path: Path, data: dict[str, Any]) -> Path:
     """Write JSON atomically with owner-only permissions (dir 0700, file 0600)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
@@ -147,35 +153,77 @@ def save_credentials(creds: Credentials, path: Path | None = None) -> Path:
 
 
 class CredentialStore:
-    """Load/save credentials at a fixed path (injectable for tests and the CLI)."""
+    """Load/save credentials: secrets in the Keychain when available, the rest in the 0600 file.
 
-    def __init__(self, path: Path | None = None):
+    With a secret backend, ``load`` also moves secrets found in an older credentials file into the
+    Keychain (written, read back to verify, and only then removed from the file).
+    """
+
+    def __init__(self, path: Path | None = None, secrets: SecretBackend | None | object = _DEFAULT):
         self.path = path or credentials_path()
+        self.secrets: SecretBackend | None = default_backend() if secrets is _DEFAULT else secrets  # type: ignore[assignment]
+
+    @property
+    def location(self) -> str:
+        return f"macOS Keychain ({SERVICE}) + {self.path}" if self.secrets else str(self.path)
 
     def load(self) -> Credentials:
-        return load_credentials(self.path)
+        creds = load_credentials(self.path)
+        if self.secrets is None:
+            return creds
+        file_creds = _file_only(self.path)
+        moved = False
+        for name in SECRET_FIELDS:
+            if _env_override(name):
+                continue
+            stored = self.secrets.get(name)
+            legacy = getattr(file_creds, name)
+            if stored:
+                setattr(creds, name, stored)
+            elif legacy:
+                self.secrets.set(name, legacy)
+                if self.secrets.get(name) == legacy:
+                    moved = True
+        if moved:
+            write_private_json(self.path, _without_secrets(file_creds))
+        return creds
 
     def save(self, creds: Credentials) -> Path:
-        return save_credentials(creds, self.path)
+        if self.secrets is None:
+            return save_credentials(creds, self.path)
+        for name in SECRET_FIELDS:
+            value = getattr(creds, name)
+            if value:
+                self.secrets.set(name, value)
+            else:
+                self.secrets.delete(name)
+        creds.saved_at = time.time()
+        return write_private_json(self.path, _without_secrets(creds))
 
 
-class StateStore:
-    """Small non-secret runtime state (e.g. which playlist-edit strategy works on this account)."""
+_ENV_FOR_FIELD = {
+    "media_user_token": ENV_USER_TOKEN,
+    "developer_token": ENV_DEVELOPER_TOKEN,
+    "getsongbpm_api_key": ENV_GETSONGBPM_KEY,
+}
 
-    def __init__(self, path: Path | None = None):
-        self.path = path or config_dir() / STATE_FILE
 
-    def load(self) -> dict:
-        try:
-            data = json.loads(self.path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return data if isinstance(data, dict) else {}
+def _env_override(name: str) -> bool:
+    return bool(os.environ.get(_ENV_FOR_FIELD[name]))
 
-    def get(self, key: str, default=None):
-        return self.load().get(key, default)
 
-    def set(self, key: str, value) -> None:
-        data = self.load()
-        data[key] = value
-        write_private_json(self.path, data)
+def _file_only(path: Path) -> Credentials:
+    """The credentials file alone, without environment overrides."""
+    saved = {k: os.environ.pop(v) for k, v in _ENV_FOR_FIELD.items() if v in os.environ}
+    try:
+        return load_credentials(path)
+    finally:
+        for k, v in saved.items():
+            os.environ[_ENV_FOR_FIELD[k]] = v
+
+
+def _without_secrets(creds: Credentials) -> dict[str, Any]:
+    data = asdict(creds)
+    for name in SECRET_FIELDS:
+        data[name] = None
+    return data
