@@ -137,10 +137,15 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         duration_minutes: int | None = None,
         refresh_enabled: bool | None = None,
         discoveries_enabled: bool | None = None,
+        refresh_weekday: Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        | None = None,
+        refresh_time: str | None = None,
     ) -> dict[str, Any]:
         """Change what is remembered about a managed playlist. Changing `purpose` redefines its whole
         profile (guide §7.1): confirm with the user first. `refresh_enabled` / `discoveries_enabled`
-        opt the playlist in or out of the weekly refresh and "Descobertas da semana"."""
+        opt the playlist in or out of the weekly refresh and "Descobertas da semana".
+        `refresh_weekday` / `refresh_time` ("HH:MM", local time) override the default slot (Monday
+        09:00); a new slot needs `apple-music-mcp schedule install` on the Mac to be loaded."""
         from ..curation.familiarity import MixTargets
 
         s = sessions()
@@ -154,6 +159,16 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             fields["refresh_enabled"] = refresh_enabled
         if discoveries_enabled is not None:
             fields["discoveries_enabled"] = discoveries_enabled
+        if refresh_weekday is not None or refresh_time is not None:
+            schedule = dict(current.get("refresh_schedule") or {})
+            if refresh_weekday is not None:
+                schedule["weekday"] = refresh_weekday
+            if refresh_time is not None:
+                hh, _, mm = refresh_time.strip().partition(":")
+                if not (hh.isdigit() and mm.isdigit() and int(hh) < 24 and int(mm) < 60):
+                    raise ValueError("refresh_time must be HH:MM")
+                schedule["time"] = f"{int(hh):02d}:{int(mm):02d}"
+            fields["refresh_schedule"] = schedule
         if known_artists_pct is not None:
             within = known_tracks_within_known_artists_pct
             t = MixTargets.from_levels(known_artists_pct, within if within is not None else 30)
@@ -163,7 +178,12 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             fields["purpose"] = purpose
             profile_slug = provider.get().profiles.get(purpose).key
         s.managed.upsert(playlist_id, origin=current["origin"], profile_slug=profile_slug, **fields)
-        return {"managed_playlist": s.managed.get(playlist_id)}
+        out: dict[str, Any] = {"managed_playlist": s.managed.get(playlist_id)}
+        if "refresh_schedule" in fields:
+            out["note"] = (
+                "New refresh slot saved. On the Mac, run `apple-music-mcp schedule install` to load it."
+            )
+        return out
 
     @mcp.tool()
     @tool_errors

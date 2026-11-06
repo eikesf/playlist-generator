@@ -150,29 +150,19 @@ async def test_refresh_command_is_read_only_for_main(fake_apple: FakeAppleMusic)
     assert await run_refresh("Missing", build=build, out=lines.append) == 1
 
 
-def test_schedule_refresh_writes_launch_agent(tmp_path: Path) -> None:
-    import plistlib
+def test_schedule_refresh_is_retired_and_removes_the_old_agent(tmp_path: Path) -> None:
+    from apple_music_mcp.commands.refresh import retire_schedule_refresh
 
-    from apple_music_mcp.commands.refresh import LABEL, schedule_refresh
-
-    path = schedule_refresh(
-        "Warehouse",
-        weekday=1,
-        hour=10,
-        minute=7,
-        executable="/x/apple-music-mcp",
-        path=tmp_path / "agent.plist",
-    )
-    data = plistlib.loads(path.read_bytes())
-    assert data["Label"] == LABEL
-    assert data["ProgramArguments"] == [
-        "/x/apple-music-mcp",
-        "refresh",
-        "--playlist",
-        "Warehouse",
-        "--notify",
-    ]
-    assert data["StartCalendarInterval"] == {"Weekday": 1, "Hour": 10, "Minute": 7}
+    old = tmp_path / "agent.plist"
+    old.write_bytes(b"<plist/>")
+    lines: list[str] = []
+    assert retire_schedule_refresh("Warehouse", path=old, out=lines.append) == 0
+    assert not old.exists()
+    text = "\n".join(lines)
+    assert "refresh_enabled" in text and "schedule install" in text and "removed" in text
+    lines.clear()
+    assert retire_schedule_refresh("Warehouse", path=old, out=lines.append) == 0
+    assert not any("removed" in line for line in lines)
 
 
 async def test_doctor_covers_unverified_endpoints(fake_apple: FakeAppleMusic) -> None:

@@ -32,14 +32,48 @@ def _calendar(times: tuple[str, ...] | list[str]) -> list[dict[str, int]]:
     return out
 
 
-def job_schedules(settings: AppSettings) -> dict[str, dict[str, Any]]:
+def _weekly(slots: list[tuple[str, str]]) -> list[dict[str, int]]:
+    """launchd weekly entries (Weekday 0 = Sunday), one per distinct slot, in order."""
+    from ..settings import WEEKDAYS
+
+    out: list[dict[str, int]] = []
+    for weekday, time in slots:
+        hh, mm = time.split(":")
+        entry = {"Weekday": (WEEKDAYS.index(weekday) + 1) % 7, "Hour": int(hh), "Minute": int(mm)}
+        if entry not in out:
+            out.append(entry)
+    return out
+
+
+def refresh_slots_from_db(settings: AppSettings) -> list[tuple[str, str]]:
+    """The default refresh slot plus every opted-in playlist's own slot."""
+    from ..db import Database
+    from ..db.history import ManagedPlaylistRepository
+    from ..jobs.refresh_plan import playlist_slot
+
+    slots = [(settings.refresh_weekday, settings.refresh_time)]
+    db = Database.open()
+    try:
+        for m in ManagedPlaylistRepository(db).list():
+            if m.get("refresh_enabled"):
+                slots.append(playlist_slot(m, settings))
+    finally:
+        db.dispose()
+    return slots
+
+
+def job_schedules(
+    settings: AppSettings, refresh_slots: list[tuple[str, str]] | None = None
+) -> dict[str, dict[str, Any]]:
     """launchd timing per job. Calendar jobs missed while the Mac sleeps run when it wakes."""
+    slots = refresh_slots or [(settings.refresh_weekday, settings.refresh_time)]
     return {
         "doctor": {"StartCalendarInterval": _calendar([settings.doctor_time])},
         "snapshot": {"StartCalendarInterval": _calendar([settings.snapshot_time])},
         "recent_played": {"StartCalendarInterval": _calendar(settings.recent_played_times)},
         "backup": {"StartCalendarInterval": _calendar([settings.backup_time])},
         "heartbeat": {"StartInterval": settings.heartbeat_minutes * 60},
+        "refresh_plan": {"StartCalendarInterval": _weekly(slots)},
     }
 
 
@@ -58,13 +92,14 @@ def write_agents(
     executable: str | None = None,
     directory: Path | None = None,
     logs: Path | None = None,
+    refresh_slots: list[tuple[str, str]] | None = None,
 ) -> list[Path]:
     directory = directory or agents_dir()
     logs = logs or logs_dir()
     directory.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
     paths = []
-    for job, timing in job_schedules(settings).items():
+    for job, timing in job_schedules(settings, refresh_slots).items():
         label = LABEL_PREFIX + job
         log = str(logs / f"{job}.log")
         plist = {
@@ -93,7 +128,8 @@ def _launchctl(*args: str) -> None:
 
 def install_schedule(out: Output = print) -> int:
     settings = AppSettings.from_env()
-    paths = write_agents(settings)
+    slots = refresh_slots_from_db(settings)
+    paths = write_agents(settings, refresh_slots=slots)
     on_mac = platform.system() == "Darwin"
     for path in paths:
         if on_mac:
@@ -101,11 +137,15 @@ def install_schedule(out: Output = print) -> int:
             _launchctl("bootstrap", f"gui/{os.getuid()}", str(path))
         out(f"  {path.name}")
     out(f"Scheduled {len(paths)} jobs (logs in {logs_dir()}):")
-    for job, timing in job_schedules(settings).items():
+    days = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    for job, timing in job_schedules(settings, slots).items():
         when = (
             f"every {timing['StartInterval'] // 60} min"
             if "StartInterval" in timing
-            else ", ".join(f"{c['Hour']:02d}:{c['Minute']:02d}" for c in timing["StartCalendarInterval"])
+            else ", ".join(
+                (f"{days[c['Weekday']]} " if "Weekday" in c else "") + f"{c['Hour']:02d}:{c['Minute']:02d}"
+                for c in timing["StartCalendarInterval"]
+            )
         )
         out(f"  {job:<14} {when}")
     if not on_mac:
