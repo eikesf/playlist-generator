@@ -2,6 +2,8 @@
 
 * ``refresh_plans``: refresh plans saved by the old ``plan``. Each becomes a ``refresh`` proposal,
   pending if it is younger than the proposal lifetime, expired otherwise (still kept: nothing lost).
+* ``pending_playlists``: playlists saved while the login was expired. Each becomes a ``create``
+  proposal, ``approved`` but not ``applied``, still finished by ``finish_pending_playlists``.
 
 The key is cleared after the import, so running this at every start imports nothing the second time.
 """
@@ -18,6 +20,7 @@ if TYPE_CHECKING:
     from .container import AppContainer
 
 REFRESH_PLANS_KEY = "refresh_plans"
+PENDING_KEY = "pending_playlists"
 
 
 def _track(candidate: dict[str, Any]) -> TrackInfo:
@@ -70,5 +73,44 @@ def _import_refresh_plans(app: AppContainer) -> int:
     return imported
 
 
+def _import_pending(app: AppContainer) -> int:
+    """Synchronous on purpose (runs in the container constructor): no catalog lookup for names."""
+    drafts = app.state.get(PENDING_KEY)
+    if not drafts:
+        return 0
+    proposals = ProposalRepository(app.db)
+    imported = 0
+    for d in list(drafts):
+        ids = [str(i) for i in d.get("song_ids") or []]
+        saved = d.get("saved_at")
+        proposals.create(
+            "create",
+            [
+                ProposedTrack(
+                    TrackInfo(
+                        i,
+                        "",
+                        catalog_id=None if i.startswith("i.") else i,
+                        library_id=i if i.startswith("i.") else None,
+                    ),
+                    decision="accepted",
+                )
+                for i in dict.fromkeys(ids)
+            ],
+            status="approved",
+            created_at=datetime.fromtimestamp(float(saved), UTC) if saved else None,
+            params={
+                "name": d["name"],
+                "description": d.get("description"),
+                "song_ids": ids,
+                "pending": True,
+                "imported_from": PENDING_KEY,
+            },
+        )
+        imported += 1
+    app.state.set(PENDING_KEY, None)
+    return imported
+
+
 def import_legacy_state(app: AppContainer) -> dict[str, int]:
-    return {"refresh_plans": _import_refresh_plans(app), "pending_playlists": 0}
+    return {"refresh_plans": _import_refresh_plans(app), "pending_playlists": _import_pending(app)}

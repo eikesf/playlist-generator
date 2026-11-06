@@ -72,6 +72,9 @@ class TrackRepository:
         if row_id is None:
             values["artist_id"] = self._artist_id(conn, info.artist_name)
             return int(conn.execute(insert(track).values(**values).returning(track.c.id)).scalar_one())
+        if not info.artist_name:  # known only by id (e.g. a pending draft): keep the real names
+            for name in ("title", "artist_name", "match_key"):
+                values.pop(name)
         conn.execute(update(track).where(track.c.id == row_id).values(**values))
         return row_id
 
