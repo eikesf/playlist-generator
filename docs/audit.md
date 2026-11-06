@@ -131,3 +131,15 @@ Built offline in CI against the fake Apple API. Live checks are in [`validation/
 Divergences from §4 that are now closed: SQLite + repository layer, Keychain + `.env`, limiter and caches, monitoring, daily stats snapshots, mypy, release-please. Still open for Phase 2: managed playlists, feedback, blacklist, history tables in use, the two-level mix definitions, and profile families.
 
 Still to verify live: everything in the Phase 1 runbook; the healthchecks.io pause API; `persistent ID` in the Music app on this macOS version; how long the AppleScript library read takes on the owner's library.
+
+## 9. Phase 2 delivered (2026-11-06)
+
+| Guide item | Delivered in | Notes |
+|---|---|---|
+| §7.3 profile families, focus, AI-created profiles | #66 | Curves sent to the owner for validation |
+| §7.4 known = loved or ≥ 10 plays; two-level mix, default 50/30 | #67 | ADR 0012; falls back until the first snapshot |
+| §7.1, §7.2, §7.6, §7.7, §8.1 sessions, preview, managed playlists, history | #68 | Rejections kept with their reason and returned as `avoid` |
+| §7.8 "não gostei", §7.9 blacklist | #69 | The blacklist is enforced at every entry point |
+| §4 skill served by the server; §7.5 default 5 h; §7.12 English names | this PR | `playlist-curator` prompt + `skill://` resource |
+
+Still open, deferred to Phase 3: pending playlists still live in `setting` (data model decision 6 moves them into `proposal`), and the refresh still keeps its plans in `setting`. Both move to `proposal` together with the refresh rework.
