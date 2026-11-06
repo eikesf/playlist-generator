@@ -10,6 +10,7 @@ from . import (
     editing_tools,
     feedback_tools,
     library_tools,
+    proposal_tools,
     refresh_tools,
     session_tools,
     taste_tools,
@@ -26,3 +27,4 @@ def register_all(mcp: MCPServer, provider: ContainerProvider) -> None:
     refresh_tools.register(mcp, provider)
     session_tools.register(mcp, provider)
     feedback_tools.register(mcp, provider)
+    proposal_tools.register(mcp, provider)
