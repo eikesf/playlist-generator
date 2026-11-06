@@ -51,6 +51,14 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def _weekday(name: str, default: str) -> str:
+    raw = os.environ.get(name, "").strip().lower()
+    return raw if raw in WEEKDAYS else default
+
+
 def _ratio(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
     try:
@@ -99,7 +107,9 @@ class AppSettings:
     known_min_plays: int = 10
     refresh_auto_apply: bool = False
     token_reminder_days: int = 7
-    # Weekly refresh (guide §7.10): evidence window and thresholds.
+    # Weekly refresh (guide §7.10): default slot (local time), evidence window and thresholds.
+    refresh_weekday: str = "monday"
+    refresh_time: str = "09:00"
     refresh_window_days: int = 42
     refresh_min_history_days: int = 14
     refresh_min_days_in_playlist: int = 14
@@ -129,6 +139,8 @@ class AppSettings:
             known_min_plays=_int("KNOWN_MIN_PLAYS", d.known_min_plays),
             refresh_auto_apply=_bool("REFRESH_AUTO_APPLY", d.refresh_auto_apply),
             token_reminder_days=_int("TOKEN_REMINDER_DAYS", d.token_reminder_days),
+            refresh_weekday=_weekday("REFRESH_WEEKDAY", d.refresh_weekday),
+            refresh_time=(_times("REFRESH_TIME", d.refresh_time) or [d.refresh_time])[0],
             refresh_window_days=max(7, _int("REFRESH_WINDOW_DAYS", d.refresh_window_days)),
             refresh_min_history_days=max(1, _int("REFRESH_MIN_HISTORY_DAYS", d.refresh_min_history_days)),
             refresh_min_days_in_playlist=max(
@@ -156,6 +168,8 @@ class AppSettings:
             "heartbeat_minutes": self.heartbeat_minutes,
             "known_min_plays": self.known_min_plays,
             "refresh_auto_apply": self.refresh_auto_apply,
+            "refresh_weekday": self.refresh_weekday,
+            "refresh_time": self.refresh_time,
             "refresh_window_days": self.refresh_window_days,
             "refresh_min_history_days": self.refresh_min_history_days,
             "proposal_ttl_days": self.proposal_ttl_days,
