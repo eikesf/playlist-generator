@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
@@ -48,6 +49,8 @@ def _registry() -> dict[str, JobFn]:
     }
 
 
+log = logging.getLogger(__name__)
+
 JOB_NAMES = ("doctor", "backup", "snapshot", "recent_played", "heartbeat")
 
 
@@ -60,12 +63,16 @@ async def run_job(name: str, app: AppContainer, notifier: Notifier | None = None
     runs = JobRunRepository(app.db)
     paused = pause_status(app.state)
     if paused and name != "heartbeat":  # the heartbeat itself reports the pause
+        log.info("job %s skipped: paused", name)
         runs.skipped(name, f"paused until {paused.get('until') or 'resumed'}")
         return JobOutcome(status="skipped_paused", detail={"paused": paused})
     with runs.run(name) as (run_id, outcome):
+        log.info("job %s started (run %s)", name, run_id)
         try:
             await jobs[name](app, run_id, outcome, notifier)
+            log.info("job %s finished: %s %s", name, outcome.status, outcome.detail)
         except Exception as exc:
+            log.exception("job %s failed", name)
             await notifier.send(
                 f"apple-music-mcp: {name} failed",
                 f"{type(exc).__name__}: {exc}"[:300],

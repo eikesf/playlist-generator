@@ -9,6 +9,7 @@ Subcommands:
   set-bpm-key      store a free GetSongBPM API key (better BPM data; optional)
   run              run one scheduled job now: doctor, snapshot, recent_played, backup, heartbeat
   schedule         install / uninstall the launchd jobs that run them on this Mac
+  pause / resume   pause mode for trips: jobs skip and alerts stay quiet
   finish-pending   create playlists saved while the login was expired
   refresh          read-only weekly refresh plan: fills "<name> · Descobertas", lists candidates
   schedule-refresh run `refresh` weekly on this Mac (launchd); nothing is ever removed automatically
@@ -22,6 +23,7 @@ import sys
 
 from . import __version__
 from .config import CredentialStore
+from .logging_setup import setup_logging
 from .settings import load_env_file
 
 
@@ -52,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     sched.add_argument("--minute", type=int, default=7)
     run = sub.add_parser("run", help="run one scheduled job now (what launchd calls)")
     run.add_argument("job", choices=["doctor", "backup", "snapshot", "recent_played", "heartbeat"])
+    pause = sub.add_parser("pause", help="pause scheduled jobs and alerts (trips); see `resume`")
+    pause.add_argument("--until", help="YYYY-MM-DD: resume automatically after this day")
+    pause.add_argument("--reason")
+    sub.add_parser("resume", help="end pause mode")
     schedule = sub.add_parser("schedule", help="install/remove the launchd jobs (doctor, snapshot, ...)")
     schedule.add_argument("action", choices=["install", "uninstall"])
     sub.add_parser("finish-pending", help="create playlists that were saved while the login was expired")
@@ -64,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     load_env_file()
+    setup_logging()
     if args.command is None and sys.stdin.isatty():
         parser.print_help()
         return 0
@@ -100,6 +107,12 @@ def main(argv: list[str] | None = None) -> int:
         from .commands.jobs import run_job_command
 
         return asyncio.run(run_job_command(args.job))
+    if args.command in ("pause", "resume"):
+        from .commands.pause import run_pause, run_resume
+
+        if args.command == "pause":
+            return asyncio.run(run_pause(args.until, args.reason))
+        return asyncio.run(run_resume())
     if args.command == "schedule":
         from .commands.jobs import install_schedule, uninstall_schedule
 

@@ -9,7 +9,7 @@ Personal MCP server that lets Claude create and maintain Apple Music playlists. 
 - `docs/adr/` — architecture decisions.
 
 ## Hard rules
-1. **Never print, log, commit or paste secrets**: the `media-user-token`, the developer JWT, `credentials.json`, `.env`, ntfy topics, API keys. When showing command output, redact anything that looks like a token.
+1. **Never print, log, commit or paste secrets** (`redact.py` is the last line of defence for logs and alerts, not a licence): the `media-user-token`, the developer JWT, `credentials.json`, `.env`, ntfy topics, API keys. When showing command output, redact anything that looks like a token.
 2. **Protect the owner's Apple account.** Do not run write operations against Apple Music unless the owner asked for them in this session (`doctor --write` creates and deletes one test playlist). Keep request volume low; never loop over hundreds of API calls.
 3. **No paid services or APIs.** Scheduled jobs are deterministic code (no LLM calls).
 4. Everything in **English** (code, identifiers, commits, PRs, issues, docs) except `README.pt-BR.md`.
@@ -28,6 +28,7 @@ apple-music-mcp status                   # masked credentials
 apple-music-mcp doctor [--write]         # live checks against Apple
 apple-music-mcp run <job>                # one scheduled job now: doctor | snapshot | recent_played | backup | heartbeat
 apple-music-mcp schedule install         # launchd agents for all jobs (times from ~/.config/apple-music-mcp/.env)
+apple-music-mcp pause [--until YYYY-MM-DD] / resume   # trips: jobs skip, alerts stay quiet
 ```
 `apple-music-mcp login` asks for a hidden token: the **owner runs it in Terminal**, not through Claude Code.
 

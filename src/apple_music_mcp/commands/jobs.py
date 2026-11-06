@@ -140,7 +140,7 @@ async def run_job_command(
         if notifier is None:
             from ..monitoring import default_notifier
 
-            notifier = default_notifier(app.settings, app._http)
+            notifier = default_notifier(app.settings, app.http)
         outcome = await run_job(job, app, notifier)
     except Exception as exc:  # noqa: BLE001 - recorded in job_run, reported here
         out(f"{job}: FAILED {type(exc).__name__}: {exc}")
