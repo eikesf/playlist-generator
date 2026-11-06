@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import asdict
 from typing import Any
 
-from ..config import StateStore
+from ..ports import KeyValueStore
 from .providers import BpmMatch, BpmProvider
 
 CACHE_KEY = "bpm_cache"
@@ -22,7 +22,7 @@ def align_octave(measured: float, estimate: float | None) -> float:
 
 
 class BpmService:
-    def __init__(self, providers: list[BpmProvider], state: StateStore, concurrency: int = 3):
+    def __init__(self, providers: list[BpmProvider], state: KeyValueStore, concurrency: int = 3):
         self.providers = providers
         self._state = state
         self._sem = asyncio.Semaphore(concurrency)

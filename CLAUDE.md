@@ -43,7 +43,7 @@ Layered, with dependency inversion (ADR 0007):
 - `commands/` + `cli.py`: CLI subcommands (`serve`, `login`, `status`, `doctor`, `install-claude`, `refresh`, `schedule-refresh`, `finish-pending`, `set-bpm-key`). `doctor` is a list of `Check` objects.
 - `server.py`: `INSTRUCTIONS` string describing the intended tool flow (plan → resolve → order → create; insert vs resequence).
 
-State lives in `~/.config/apple-music-mcp/` (`credentials.json` 0600, `state.json` for remembered edit strategies/removal shapes, BPM cache, etc.).
+State lives in `~/.config/apple-music-mcp/`: `credentials.json` (0600) and `apple-music-mcp.db` (SQLite, 0600). The database schema is `db/schema.py`, mirroring the approved ERD in `docs/data-model.md`; every schema change needs an Alembic migration in `db/migrations/versions/` (`tests/test_db.py` checks they match). `Database.open()` applies pending migrations. Small state (remembered edit strategies, removal shapes, caches) goes through `KeyValueStore` (`ports.py`), backed by the `setting` table; a legacy `state.json` is imported once and renamed to `state.json.imported`.
 
 ### Behavioral invariants (from ADRs, enforced by tests)
 

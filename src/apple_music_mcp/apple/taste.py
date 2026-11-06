@@ -11,8 +11,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..config import StateStore
 from ..models import Song
+from ..ports import KeyValueStore
 from ..text import artist_names
 from .errors import AppleMusicError, AuthError
 from .transport import AmpTransport
@@ -109,7 +109,7 @@ class TasteProfile:
 
 
 class TasteService:
-    def __init__(self, transport: AmpTransport, state: StateStore):
+    def __init__(self, transport: AmpTransport, state: KeyValueStore):
         self._amp = transport
         self._state = state
         self._profile: TasteProfile | None = None

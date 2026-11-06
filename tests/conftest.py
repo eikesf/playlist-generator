@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
 import time
 
 import pytest
@@ -32,13 +33,28 @@ def jwt_factory():
     return make_jwt
 
 
+@pytest.fixture(scope="session")
+def migrated_db_template(tmp_path_factory):
+    """One migrated database per test run; tests get a copy instead of re-running migrations."""
+    from apple_music_mcp.db import Database
+
+    path = tmp_path_factory.mktemp("db-template") / "template.db"
+    Database.open(path).dispose()
+    return path
+
+
 @pytest.fixture(autouse=True)
-def isolated_config(tmp_path, monkeypatch):
-    """Every test gets its own empty config dir and no token env vars."""
-    monkeypatch.setenv(config.ENV_CONFIG_DIR, str(tmp_path / "cfg"))
+def isolated_config(tmp_path, monkeypatch, migrated_db_template):
+    """Every test gets its own config dir (with a fresh, migrated database) and no token env vars."""
+    from apple_music_mcp.db import DB_FILE
+
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    shutil.copy2(migrated_db_template, cfg / DB_FILE)
+    monkeypatch.setenv(config.ENV_CONFIG_DIR, str(cfg))
     for var in (config.ENV_USER_TOKEN, config.ENV_DEVELOPER_TOKEN, config.ENV_STOREFRONT):
         monkeypatch.delenv(var, raising=False)
-    return tmp_path / "cfg"
+    return cfg
 
 
 @pytest.fixture

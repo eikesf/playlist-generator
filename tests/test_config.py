@@ -37,7 +37,7 @@ def test_env_overrides_file(monkeypatch):
 
 
 def test_corrupted_file_falls_back_to_defaults(isolated_config):
-    isolated_config.mkdir(parents=True)
+    isolated_config.mkdir(parents=True, exist_ok=True)
     (isolated_config / "credentials.json").write_text("{not json")
     assert load_credentials().media_user_token is None
 
