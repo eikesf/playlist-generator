@@ -161,10 +161,10 @@ PromotionService.apply(proposal_id: int, *, estimates=None, allow_rebuild=False)
 - [ ] Skill (and zip), CLAUDE.md, README.md + README.pt-BR.md, audit §11 "Phase 3 delivered", `docs/validation/phase-3-runbook.md`, ADR 0010 note (read-only plan, proposals).
 - [ ] Open (do not merge) the `develop → main` release PR.
 
-## Open questions for the owner
+## Open questions for the owner (answered 2026-11-06)
 
-1. "Liked" for promotion: loved, or ≥ 3 plays with skip ratio < 0.25. OK?
-2. Rotation thresholds: 42-day window, at least 14 days of history; "skipped" = ≥ 3 skips and ≥ 50 % skips; "rarely played" = 0 plays while the playlist was played. OK?
-3. Weekly playlist name: "<name> · Weekly Discoveries"? (The archive stays "<name> · Arquivo": rename it to "· Archive"?)
-4. One-for-one replacement (default), or may the playlist shrink/grow?
-5. Phase 2 leftovers: energy curves (study = focus today) and job times (snapshot 23:40, backup 23:50, doctor 08:10, recently played 10:30/22:30).
+1. "Liked" for promotion: loved, or ≥ 3 plays with skip ratio < 0.25. **Confirmed.**
+2. Rotation thresholds: 42-day window, at least 14 days of history; "skipped" = ≥ 3 skips and ≥ 50 % skips; "rarely played" = 0 plays while the playlist was played. **Confirmed.**
+3. Weekly playlist name: "<name> · Weekly Discoveries"; the archive stays "<name> · Arquivo". **Keep both as they are.**
+4. One-for-one replacement, or may the playlist shrink/grow? **The refresh removes what the owner stopped enjoying and suggests new tracks; the owner chooses per playlist whether it keeps its size or grows.** Implemented as `refresh_grow_by` (0 = keep size, the default; N ≤ 50 = N extra tracks per refresh, bucketed by the playlist's mix targets), stored in the existing `managed_playlist.refresh_schedule` JSON, so no schema change. `plan_playlist_refresh(grow_by=…)` overrides it for one proposal. Extra items have `why: growth` and no `replaces_item_id`. Rejecting replacements item by item still lets a playlist shrink.
+5. Phase 2 leftovers: energy curves (study = focus) and job times (snapshot 23:40, backup 23:50, doctor 08:10, recently played 10:30/22:30). **Confirmed: study equals focus for the owner today, and the times stay.**

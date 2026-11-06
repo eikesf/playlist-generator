@@ -176,6 +176,6 @@ Built offline against the fake Apple API (297 tests, mypy strict). Live checks a
 
 No schema change was needed: every new behaviour uses the approved ERD (per-item evidence lives in `proposal.params`).
 
-Divergences and choices to confirm with the owner (see the plan's open questions): the "liked" thresholds; the refresh window and thresholds; the weekly playlist name "· Weekly Discoveries" (the archive stays "· Arquivo"); one-for-one replacement; the plan no longer stages discoveries (now Claude's weekly task).
+The owner answered the open questions on 2026-11-06 (see the plan): the "liked" criterion, the refresh window and thresholds, the names "· Weekly Discoveries" / "· Arquivo", study = focus and the job times are confirmed. Playlist size became a per-playlist choice: keep the size (default) or grow by `refresh_grow_by` tracks per refresh. Remaining divergence: the plan no longer stages discoveries (now Claude's weekly task).
 
 Still to verify live: the first `refresh_plan` run with real snapshots (rotation starts once 14 days of history exist, around 2026-11-20); the ntfy alert on a real proposal; approving through Dispatch; the Claude Desktop scheduled task calling `submit_weekly_discoveries`; whether loved tracks in the weekly playlist show up as `favorited` in the Music app snapshot.

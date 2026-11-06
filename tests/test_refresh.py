@@ -29,7 +29,7 @@ from apple_music_mcp.local_music import (
 )
 from apple_music_mcp.models import Playlist
 from apple_music_mcp.proposals import ProposalService
-from apple_music_mcp.refresh import ARCHIVE_SUFFIX, RefreshService
+from apple_music_mcp.refresh import ARCHIVE_SUFFIX, RefreshService, RefreshSettings
 from apple_music_mcp.server import build_server
 from apple_music_mcp.sessions import CurationSessions
 
@@ -378,3 +378,55 @@ async def test_refresh_tools_via_mcp(fake_apple: FakeAppleMusic, tmp_path: Path)
     assert empty.is_error
     assert "5002" not in fake_apple.playlists[pid]["tracks"]
     assert applied["archive_playlist"]["name"] == "Set" + ARCHIVE_SUFFIX
+
+
+def set_grow_by(app: AppContainer, playlist_id: str, grow_by: int) -> None:
+    managed = CurationSessions(app).managed
+    current = managed.get(playlist_id)
+    assert current is not None
+    schedule = {**(current.get("refresh_schedule") or {}), "grow_by": grow_by}
+    managed.upsert(playlist_id, origin=current["origin"], refresh_schedule=schedule)
+
+
+async def test_keep_size_is_the_default(app: AppContainer, fake_apple: FakeAppleMusic) -> None:
+    pl = await managed_main(app)
+    week_of_listening(fake_apple, app)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+    assert all(a["replaces_item_id"] is not None for a in items_by(plan, "add"))
+    assert plan["grow_by"] == 0
+
+
+async def test_grow_adds_extra_tracks_on_top_of_the_replacements(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
+    pl = await managed_main(app)
+    set_grow_by(app, pl.id, 2)
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(pl.id)
+
+    assert {i["song_id"] for i in items_by(plan, "remove")} == {"5002"}  # no history: only the dislike
+    adds = items_by(plan, "add")
+    extras = [a for a in adds if a["replaces_item_id"] is None]
+    assert len(extras) == 2 and all(a["why"] == "growth" for a in extras)
+    assert len(adds) == 3 and len({a["song_id"] for a in adds}) == 3
+    assert not {a["song_id"] for a in adds} & set(MAIN)
+    assert plan["grow_by"] == 2
+    assert any("grows by 2" in n for n in plan["notes"])
+
+    service = ProposalService(app)
+    service.decide(plan["proposal_id"], accept_all=True)
+    await service.apply(plan["proposal_id"])
+    main = fake_apple.playlists[pl.id]["tracks"]
+    assert len(main) == len(MAIN) - 1 + 3 and "5002" not in main
+
+
+async def test_grow_without_anything_to_rotate_still_proposes_the_extras(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
+    pl = await managed_main(app)
+    fake_apple.ratings.pop("5002", None)  # no dislike: nothing to remove
+    plan = await RefreshService(app, MusicAppReader(system="Linux")).build_plan(
+        pl.id, RefreshSettings.from_app(app, grow_by=1)
+    )
+    assert items_by(plan, "remove") == []
+    extras = items_by(plan, "add")
+    assert len(extras) == 1 and extras[0]["replaces_item_id"] is None
