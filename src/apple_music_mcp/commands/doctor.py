@@ -163,7 +163,11 @@ async def _music_app_stats(app: AppContainer) -> str:
         played = sum(1 for s in stats if s.played)
         favorites = sum(1 for s in stats if s.favorited)
         note = f" ({skipped} playlist(s) not in the Music app skipped)" if skipped else ""
-        return f"'{playlist.name}': {len(stats)} tracks, {played} with plays, {favorites} favorites{note}"
+        pids = "yes" if stats and all(st.persistent_id for st in stats) else "no"
+        return (
+            f"'{playlist.name}': {len(stats)} tracks, {played} with plays, {favorites} favorites, "
+            f"persistent IDs: {pids}{note}"
+        )
     raise AppleMusicError(f"none of the first {skipped} library playlists was found in the Music app")
 
 
@@ -183,6 +187,30 @@ DEFAULT_CHECKS: list[Check] = [
 ]
 
 
+async def run_checks(app: AppContainer, checks: list[Check]) -> list[dict[str, str]]:
+    """Run checks in order. Login-dependent checks run only after a check proved the login works.
+
+    Each result is ``{"name", "status": ok|warn|FAIL|skipped, "detail"}``; messages never hold tokens.
+    """
+    results: list[dict[str, str]] = []
+    logged_in = False
+    for check in checks:
+        if check.needs_login and not logged_in:
+            results.append({"name": check.name, "status": "skipped", "detail": "needs a working login"})
+            continue
+        try:
+            detail = await check.run(app)
+        except Exception as exc:  # noqa: BLE001 - diagnostics
+            status = "FAIL" if check.required else "warn"
+            results.append(
+                {"name": check.name, "status": status, "detail": f"{exc.__class__.__name__}: {exc}"}
+            )
+            continue
+        results.append({"name": check.name, "status": "ok", "detail": detail})
+        logged_in = logged_in or check.proves_login
+    return results
+
+
 async def run_doctor(
     write: bool,
     *,
@@ -193,23 +221,17 @@ async def run_doctor(
 ) -> int:
     store = store or CredentialStore()
     app = build(store.load())
-    failures = 0
-    logged_in = False
-    out(f"apple-music-mcp {__version__} doctor  (credentials: {store.path})")
+    out(f"apple-music-mcp {__version__} doctor  (credentials: {store.location})")
+    selected = [c for c in (checks if checks is not None else DEFAULT_CHECKS) if write or not c.writes]
     try:
-        for check in checks if checks is not None else DEFAULT_CHECKS:
-            if (check.writes and not write) or (check.needs_login and not logged_in):
-                continue
-            try:
-                detail = await check.run(app)
-            except Exception as exc:  # noqa: BLE001 - diagnostics
-                failures += int(check.required)
-                tag = "FAIL" if check.required else "warn"
-                out(f"  [{tag}] {check.name}: {exc.__class__.__name__}: {exc}")
-                continue
-            out(f"  [ok]   {check.name}: {detail}")
-            logged_in = logged_in or check.proves_login
+        results = await run_checks(app, selected)
     finally:
         await app.aclose()
+    for r in results:
+        if r["status"] == "skipped":
+            continue
+        tag = {"ok": "ok]  ", "warn": "warn]", "FAIL": "FAIL]"}[r["status"]]
+        out(f"  [{tag} {r['name']}: {r['detail']}")
+    failures = sum(1 for r in results if r["status"] == "FAIL")
     out("All checks passed." if failures == 0 else f"{failures} check(s) failed.")
     return 0 if failures == 0 else 1

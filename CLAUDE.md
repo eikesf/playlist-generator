@@ -26,6 +26,8 @@ uv tool install --force --reinstall --no-cache .  # install the CLI (without --r
 uv run python scripts/diagnose_token.py  # bounded, masked live diagnostic of developer-token discovery
 apple-music-mcp status                   # masked credentials
 apple-music-mcp doctor [--write]         # live checks against Apple
+apple-music-mcp run <job>                # one scheduled job now: doctor | snapshot | recent_played | backup | heartbeat
+apple-music-mcp schedule install         # launchd agents for all jobs (times from ~/.config/apple-music-mcp/.env)
 ```
 `apple-music-mcp login` asks for a hidden token: the **owner runs it in Terminal**, not through Claude Code.
 
