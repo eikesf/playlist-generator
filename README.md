@@ -139,6 +139,26 @@ apple-music-mcp install-claude    # registers the server in Claude Desktop (back
 
 **Updating after a `git pull`:** use `uv tool install --force --reinstall --no-cache .`. Without `--reinstall --no-cache`, uv reuses the cached build and the command keeps running the old code.
 
+### Background jobs and monitoring (optional, recommended)
+
+The server also keeps a local history so the refresh and the future dashboard have data from day one:
+
+```bash
+cp .env.example ~/.config/apple-music-mcp/.env   # then edit: ntfy topic, healthchecks URL, times
+apple-music-mcp schedule install                  # launchd jobs: doctor, snapshot, recently played, backup, heartbeat
+apple-music-mcp run snapshot                      # first snapshot now (later: daily)
+```
+
+| Job | Default time | What it does |
+|---|---|---|
+| `doctor` | 08:10 | Read-only live checks. Alerts on failure and before the login expires |
+| `recent_played` | 10:30, 22:30 | Saves Apple's recently-played history (it keeps only ~50 songs) |
+| `snapshot` | 23:40 | Saves the Music app's play/skip counters (only what changed) |
+| `backup` | 23:50 | Verified, compressed database copy in iCloud Drive (7 daily + 4 weekly) |
+| `heartbeat` | every 10 min | Pings healthchecks.io; reports when Claude Desktop is closed |
+
+Alerts go to your phone through **ntfy** (free app; pick a long random topic). The heartbeat uses a free **healthchecks.io** check: if your Mac stops pinging, healthchecks e-mails you. Going on a trip? `apple-music-mcp pause --until 2026-12-20` (and `resume` when back). Everything is stored in `~/.config/apple-music-mcp/apple-music-mcp.db` (SQLite). Logs are in `~/Library/Logs/apple-music-mcp/`.
+
 ## Using it
 
 Example requests:
@@ -181,7 +201,7 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `apply_playlist_refresh` | Applies only what you confirmed: archive then remove, promote into the main playlist at the best position |
 | `finish_pending_playlists` | Creates playlists that were kept as pending while the login was expired |
 
-CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | refresh --playlist NAME | schedule-refresh --playlist NAME`.
+CLI: `apple-music-mcp serve | login [--browser] [--expires YYYY-MM-DD] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | run <job> | schedule install|uninstall | pause [--until DATE] | resume | refresh --playlist NAME | schedule-refresh --playlist NAME`.
 
 **Weekly refresh on the Mac (optional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` writes a launchd agent (Monday 10:07 by default) and prints the `launchctl load` command. It only runs the read-only plan: it fills "· Descobertas" and shows a notification. Play counts come from the Music app via AppleScript, and macOS asks once for permission (System Settings → Privacy & Security → Automation).
 
@@ -262,7 +282,8 @@ All are recorded as ADRs in [`docs/adr/`](docs/adr/README.md):
 
 ## Security and privacy
 
-- Your `media-user-token` is stored only in `~/.config/apple-music-mcp/credentials.json` (directory 0700, file 0600). It is sent only to Apple's servers and is masked in all output.
+- Your `media-user-token` is stored in the **macOS Keychain** (service `apple-music-mcp`); `~/.config/apple-music-mcp/credentials.json` (0600) keeps only non-secret settings. It is sent only to Apple's servers and is masked in all output, logs and alerts. Without a keychain (Linux), the token stays in that 0600 file.
+- The database stores only the token's expiry date, never the token. Non-secret configuration lives in `~/.config/apple-music-mcp/.env`.
 - Nothing is sent to any third party. The server runs on your Mac and talks only to `music.apple.com`, `amp-api.music.apple.com`, `itunes.apple.com` and, for tempo, `api.deezer.com` and `api.getsong.co` (only artist and title are sent there, never your tokens).
 - The repository never contains credentials. `.gitignore` blocks env files, credential files, browser profiles and keys, and CI runs a secret scan ([`tests/test_secrets.py`](tests/test_secrets.py)) that fails on anything that looks like a token or key. `.env.example` documents the optional variables with empty values.
 - `login` validates a token with Apple **before** saving it.

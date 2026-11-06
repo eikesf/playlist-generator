@@ -139,6 +139,26 @@ apple-music-mcp install-claude    # registra o servidor no Claude Desktop (faz b
 
 **Atualizando depois de um `git pull`:** use `uv tool install --force --reinstall --no-cache .`. Sem `--reinstall --no-cache`, o uv reaproveita a versão em cache e o comando continua rodando o código antigo.
 
+### Tarefas em segundo plano e monitoramento (opcional, recomendado)
+
+O servidor também guarda um histórico local, para o refresh e o futuro painel terem dados desde o primeiro dia:
+
+```bash
+cp .env.example ~/.config/apple-music-mcp/.env   # depois edite: tópico do ntfy, URL do healthchecks, horários
+apple-music-mcp schedule install                  # tarefas do launchd: doctor, snapshot, tocadas recentemente, backup, heartbeat
+apple-music-mcp run snapshot                      # primeiro snapshot agora (depois: diário)
+```
+
+| Tarefa | Horário padrão | O que faz |
+|---|---|---|
+| `doctor` | 08:10 | Testes ao vivo só de leitura. Avisa quando falha e antes do login vencer |
+| `recent_played` | 10:30, 22:30 | Guarda o histórico de tocadas recentemente da Apple (ela guarda só ~50 músicas) |
+| `snapshot` | 23:40 | Guarda os contadores de plays e pulos do app Música (só o que mudou) |
+| `backup` | 23:50 | Cópia verificada e comprimida do banco no iCloud Drive (7 diárias + 4 semanais) |
+| `heartbeat` | a cada 10 min | Avisa o healthchecks.io que o Mac está vivo; acusa quando o Claude Desktop está fechado |
+
+Os alertas chegam no celular pelo **ntfy** (app grátis; escolha um tópico longo e aleatório). O heartbeat usa um check grátis do **healthchecks.io**: se o Mac parar de avisar, o healthchecks manda e-mail. Vai viajar? `apple-music-mcp pause --until 2026-12-20` (e `resume` na volta). Tudo fica em `~/.config/apple-music-mcp/apple-music-mcp.db` (SQLite). Os logs ficam em `~/Library/Logs/apple-music-mcp/`.
+
 ## Como usar
 
 Exemplos de pedidos:
@@ -181,7 +201,7 @@ O que você recebe: o link da playlist, as faixas agrupadas por ato com as dura�
 | `apply_playlist_refresh` | Aplica só o que você confirmou: arquiva e depois remove, promove para a playlist principal na melhor posição |
 | `finish_pending_playlists` | Cria as playlists que ficaram pendentes enquanto o login estava expirado |
 
-CLI: `apple-music-mcp serve | login [--browser] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | refresh --playlist NOME | schedule-refresh --playlist NOME`.
+CLI: `apple-music-mcp serve | login [--browser] [--expires AAAA-MM-DD] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | run <tarefa> | schedule install|uninstall | pause [--until DATA] | resume | refresh --playlist NOME | schedule-refresh --playlist NOME`.
 
 **Renovação semanal no Mac (opcional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` grava um agente do launchd (segunda-feira às 10:07, por padrão) e mostra o comando `launchctl load`. Ele roda só o plano de leitura: enche "· Descobertas" e mostra uma notificação. As contagens de reprodução vêm do app Música via AppleScript, e o macOS pede permissão uma vez (Ajustes do Sistema → Privacidade e Segurança → Automação).
 
@@ -262,7 +282,8 @@ Todas estão registradas como ADRs em [`docs/adr/`](docs/adr/README.md) (em ingl
 
 ## Segurança e privacidade
 
-- O seu `media-user-token` fica guardado só em `~/.config/apple-music-mcp/credentials.json` (diretório 0700, arquivo 0600). Ele é enviado só para os servidores da Apple e aparece mascarado em toda saída.
+- O seu `media-user-token` fica no **Keychain do macOS** (serviço `apple-music-mcp`); `~/.config/apple-music-mcp/credentials.json` (0600) guarda só configurações não secretas. Ele é enviado só para os servidores da Apple e aparece mascarado em toda saída, log e alerta. Sem keychain (Linux), o token fica nesse arquivo 0600.
+- O banco guarda só a data de vencimento do token, nunca o token. A configuração não secreta fica em `~/.config/apple-music-mcp/.env`.
 - Nada é enviado a terceiros. O servidor roda no seu Mac e fala só com `music.apple.com`, `amp-api.music.apple.com`, `itunes.apple.com` e, para o andamento, `api.deezer.com` e `api.getsong.co` (para esses vão só artista e título, nunca os seus tokens).
 - O repositório nunca contém credenciais. O `.gitignore` bloqueia arquivos de ambiente, arquivos de credenciais, perfis de navegador e chaves, e o CI roda uma varredura de segredos ([`tests/test_secrets.py`](tests/test_secrets.py)) que falha com qualquer coisa que pareça token ou chave. O `.env.example` documenta as variáveis opcionais com valores vazios.
 - O `login` valida o token com a Apple **antes** de salvar.
