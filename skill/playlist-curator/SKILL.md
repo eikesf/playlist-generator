@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, and that is the only way playlists are made: never Spotify, Tune My Music, text files or any other importer. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `start_session`, `record_answer`, `preview_playlist`, `reject_preview_tracks`, `approve_preview`, `adopt_playlist`, `list_managed_playlists`, `update_managed_playlist`, `playlist_history`, `dislike_track`, `resolve_dislike`, `list_dislikes`, `blacklist_add`, `blacklist_remove`, `blacklist_list`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `profile_curve`, `create_profile`, `delete_profile`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `list_pending_proposals`, `show_proposal`, `decide_proposal`, `apply_proposal`, `finish_pending_playlists`.
+Tools (server `apple-music`): `auth_status`, `start_session`, `record_answer`, `preview_playlist`, `reject_preview_tracks`, `approve_preview`, `adopt_playlist`, `list_managed_playlists`, `update_managed_playlist`, `playlist_history`, `dislike_track`, `resolve_dislike`, `list_dislikes`, `blacklist_add`, `blacklist_remove`, `blacklist_list`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `profile_curve`, `create_profile`, `delete_profile`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `list_pending_proposals`, `show_proposal`, `decide_proposal`, `apply_proposal`, `weekly_discoveries_context`, `submit_weekly_discoveries`, `finish_pending_playlists`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -146,6 +146,16 @@ Playlists with the refresh on (`update_managed_playlist` with `refresh_enabled: 
 5. Report what left, what came in and where, and remind him the Arquivo keeps everything that left.
 
 On request, outside the weekly slot: `plan_playlist_refresh` builds the same kind of proposal now (or returns the open one). `apply_playlist_refresh` with `remove_ids` removes tracks he names directly (archived first).
+
+## 9b. Weekly Discoveries ("Descobertas da semana")
+
+For managed playlists with `discoveries_enabled` (turn it on with `update_managed_playlist` only when he asks), a weekly playlist "<name> · Weekly Discoveries" gets about 30 tracks he never heard, chosen by you. It normally runs from his Claude Desktop scheduled task (Monday 09:30; prompt in `docs/scheduled-tasks/weekly-discoveries.md` of the repository):
+
+1. `weekly_discoveries_context` without arguments lists the playlists; with a `playlist_id` it returns the profile, mix note, top artists, genres, dislikes, blacklist, tracks to avoid, last week's batch and candidate pools (`new_artists`, `deep_cuts`).
+2. Choose about `target_size` tracks (inside `size_range`) by vibe and purpose. Verify extra picks with `resolve_tracks`. Give each new artist 2-3 tracks. Don't repeat last week.
+3. `submit_weekly_discoveries` (a **write**: only from the scheduled task or when he asks) validates every id and fills the weekly playlist. Read `dropped` (reason per track) and, if the batch was refused for size, replace and submit again. The main playlist is never touched.
+
+Tracks he loves there become **promotion** proposals (approved like the refresh, section 9).
 
 ## 10. Follow-up
 

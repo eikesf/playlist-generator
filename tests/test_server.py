@@ -16,6 +16,8 @@ from .conftest import build_app, result_text
 from .fake_apple import FakeAppleMusic
 
 EXPECTED_TOOLS = {
+    "weekly_discoveries_context",
+    "submit_weekly_discoveries",
     "list_pending_proposals",
     "show_proposal",
     "decide_proposal",
