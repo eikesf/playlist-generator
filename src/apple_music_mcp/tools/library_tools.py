@@ -14,6 +14,15 @@ from .base import ContainerProvider, tool_errors
 SYNC_NOTE = "Library playlists sync to iPhone/Mac via iCloud Music Library within a few minutes."
 
 
+async def blocked_ids(app: Any, ids: list[str]) -> dict[str, str]:
+    """song id -> reason, for the ids on the blacklist (one catalog lookup, cached)."""
+    banned = app.blacklist()
+    if not banned.items or not ids:
+        return {}
+    songs = await app.catalog.get_songs(ids)
+    return {s.id: r for s in songs if (r := banned.blocked_reason(s.id, s.artist, s.name))}
+
+
 def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     @mcp.tool()
     @tool_errors
@@ -43,8 +52,10 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             report_dict = report.to_dict()
             ids += [r.song.id for r in report.resolutions if r.status in accepted and r.song]
         ids = list(dict.fromkeys(ids))
+        blocked = await blocked_ids(app, ids)
+        ids = [i for i in ids if i not in blocked]
         if not ids:
-            raise ToolError("No tracks to add: nothing matched in the catalog.")
+            raise ToolError("No tracks to add: nothing matched in the catalog (or all are blacklisted).")
         if dry_run:
             return {
                 "dry_run": True,
@@ -55,6 +66,8 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             }
         result: dict[str, Any] = await create_with_tracks(app, name.strip(), description.strip() or None, ids)
         result["note"] = SYNC_NOTE
+        if blocked:
+            result["blocked_by_blacklist"] = blocked
         if report_dict:
             result["resolution_summary"] = report_dict["summary"]
             result["not_added"] = [t for t in report_dict["tracks"] if t["status"] not in accepted]

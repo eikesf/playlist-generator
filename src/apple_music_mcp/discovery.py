@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -11,6 +12,7 @@ from .apple.taste import TasteProfile, TasteService
 from .curation.familiarity import BUCKETS, MixTargets, mix_check
 from .curation.known import PARTLY_KNOWN, FamiliarityIndex, ListeningFacts
 from .db.repositories import ListeningRepository, match_key
+from .feedback import Blacklist
 from .models import Artist, Song
 from .resolver import ResolveReport
 from .text import primary_artist
@@ -43,11 +45,16 @@ class DiscoveryService:
         taste: TasteService | None,
         listening: ListeningRepository | None = None,
         min_plays: int = 10,
+        blacklist: Callable[[], Blacklist] | None = None,
     ):
+        self._blacklist = blacklist
         self.catalog = catalog
         self.taste = taste
         self.listening = listening
         self.min_plays = min_plays
+
+    def blacklist(self) -> Blacklist:
+        return self._blacklist() if self._blacklist else Blacklist([])
 
     async def index(self, song_ids: list[str] | None = None) -> FamiliarityIndex | None:
         """Familiarity for the given candidates (guide §7.4). None without a working login."""
@@ -90,6 +97,7 @@ class DiscoveryService:
         result = DiscoveryResult(taste_available=profile is not None)
         seeds = {primary_artist(s) for s in seed_artists}
         blocked = {primary_artist(a) for a in exclude or []}
+        banned = self.blacklist()
         seen_artists: set[str] = set()
         pool: list[tuple[Song, Artist, str]] = []
         for seed in seed_artists:
@@ -99,7 +107,12 @@ class DiscoveryService:
                 continue
             for similar in await self.catalog.similar_artists(artist.id, limit=similar_per_seed):
                 key = primary_artist(similar.name)
-                if key in seeds or key in seen_artists or key in blocked:
+                if (
+                    key in seeds
+                    or key in seen_artists
+                    or key in blocked
+                    or banned.blocks_artist(similar.name)
+                ):
                     continue
                 seen_artists.add(key)
                 for song in await self.catalog.artist_top_songs(similar.id, limit=per_artist * 3):
@@ -114,6 +127,8 @@ class DiscoveryService:
             seen_ids.add(song.id)
             if ratings.get(song.id) == -1:
                 result.skipped_disliked += 1
+                continue
+            if banned.blocked_reason(song.id, song.artist, song.name):
                 continue
             heard = index.track_status(song.id, song.artist, song.name) != "unheard" if index else False
             if exclude_known and heard:
@@ -151,9 +166,16 @@ class DiscoveryService:
         buckets = dict.fromkeys(BUCKETS, 0)
         partly = 0
         disliked = 0
+        banned = self.blacklist()
+        blocked = 0
         for row in data["tracks"]:
             song = row.get("song")
             if not song:
+                continue
+            reason = banned.blocked_reason(song["id"], song["artist"], song["name"])
+            if reason:
+                row["blocked"] = reason
+                blocked += 1
                 continue
             if index is not None:
                 bucket = index.bucket(song["id"], song["artist"], song["name"])
@@ -194,6 +216,9 @@ class DiscoveryService:
                 summary["mix_check"] = mix_check(buckets, targets)
         else:
             summary["familiarity"] = "unavailable (log in to measure what is known)"
+        if blocked:
+            summary["blocked"] = blocked
+            summary["blocked_note"] = "Tracks marked blocked are on the user's blacklist: never use them."
         if disliked:
             summary["disliked"] = disliked
             summary["note"] = "Tracks marked disliked were rated 'dislike' by the user: drop them."
@@ -207,10 +232,12 @@ class DiscoveryService:
         songs = profile.known_songs_by(artists)
         ratings = await self._ratings([s["id"] for s in songs])
         index = await self.index([s["id"] for s in songs])
+        banned = self.blacklist()
         songs = [
             s
             for s in songs
             if ratings.get(s["id"]) != -1
+            and not banned.blocked_reason(s["id"], s["artist"], s["name"])
             and (index is None or index.track_status(s["id"], s["artist"], s["name"]) == "known_track")
         ]
         songs.sort(key=lambda s: -ratings.get(s["id"], 0))
@@ -234,12 +261,14 @@ class DiscoveryService:
                 pool.append((song, artist.name))
         ratings = await self._ratings([s.id for s, _ in pool])
         index = await self.index([])
+        banned = self.blacklist()
         per: dict[str, int] = {}
         rows = []
         seen: set[str] = set()
         for song, artist_name in pool:
             heard = index is not None and index.track_status(song.id, song.artist, song.name) != "unheard"
-            if song.id in seen or ratings.get(song.id) == -1 or heard:
+            banned_track = banned.blocked_reason(song.id, song.artist, song.name)
+            if song.id in seen or ratings.get(song.id) == -1 or heard or banned_track:
                 continue
             seen.add(song.id)
             if per.get(artist_name, 0) >= per_artist:

@@ -49,7 +49,19 @@ async def insert_into_playlist(
     current_estimates: list[dict[str, Any]] | None = None,
     allow_rebuild: bool = False,
 ) -> dict[str, Any]:
-    """Insert tracks at their best positions keeping the current order (see ADR 0005)."""
+    """Insert tracks at their best positions keeping the current order (see ADR 0005).
+    Tracks on the blacklist are never inserted."""
+    banned = app.blacklist()
+    blocked = [
+        {"song_id": str(t["id"]), "reason": r}
+        for t in new_tracks
+        if (r := banned.blocked_reason(str(t["id"]), str(t.get("artist") or ""), str(t.get("title") or "")))
+    ]
+    if blocked:
+        skip = {b["song_id"] for b in blocked}
+        new_tracks = [t for t in new_tracks if str(t["id"]) not in skip]
+        if not new_tracks:
+            return {"changed": False, "inserted": [], "blocked_by_blacklist": blocked, "warnings": []}
     entries = await app.library.playlist_tracks(playlist_id)
     estimates = {str(t["id"]): t for t in current_estimates or []}
     new_ids = {str(t["id"]) for t in new_tracks}
@@ -85,12 +97,15 @@ async def insert_into_playlist(
     from .sessions import sync_with_history
 
     result = await sync_with_history(app, playlist_id, plan["song_ids_in_order"], allow_rebuild)
-    return {
+    out = {
         "edit": result.to_dict(),
         "inserted": plan["inserted"],
         "existing_order_preserved": True,
         "warnings": plan["warnings"],
     }
+    if blocked:
+        out["blocked_by_blacklist"] = blocked
+    return out
 
 
 PENDING_KEY = "pending_playlists"

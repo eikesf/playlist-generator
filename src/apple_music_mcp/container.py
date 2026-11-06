@@ -23,6 +23,7 @@ from .db.repositories import ListeningRepository, ProfileRepository
 from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
+from .feedback import Blacklist, BlacklistRepository, FeedbackRepository
 from .local_music import MusicAppReader
 from .ports import KeyValueStore
 from .settings import AppSettings
@@ -63,6 +64,8 @@ class AppContainer:
         self.apple_limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)
         self.cache = ResponseCache(self.db)
         self.profiles = ProfileRegistry(ProfileRepository(self.db))
+        self.blacklist_entries = BlacklistRepository(self.db)
+        self.feedback = FeedbackRepository(self.db)
         self.transport = AmpTransport(
             self._http,
             self.credentials,
@@ -79,7 +82,11 @@ class AppContainer:
         self.editor = PlaylistEditor(self.library, self.state)
         self.taste = TasteService(self.transport, self.state)
         self.discovery = DiscoveryService(
-            self.catalog, self.taste, ListeningRepository(self.db), min_plays=self.settings.known_min_plays
+            self.catalog,
+            self.taste,
+            ListeningRepository(self.db),
+            min_plays=self.settings.known_min_plays,
+            blacklist=self.blacklist,
         )
         providers: list[BpmProvider] = []
         if self.credentials.getsongbpm_api_key:
@@ -100,6 +107,10 @@ class AppContainer:
 
     def set_persist(self, persist: bool) -> None:
         self.tokens.store = self.store if persist else None
+
+    def blacklist(self) -> Blacklist:
+        """The active blacklist, read fresh (it is small and edited from the chat)."""
+        return Blacklist(self.blacklist_entries.active())
 
     @property
     def http(self) -> httpx.AsyncClient:
