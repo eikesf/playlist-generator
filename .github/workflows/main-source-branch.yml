@@ -1,7 +1,6 @@
 name: Main source branch
 
-# main only takes releases from develop, emergency fixes from hotfix/*, and the release PR that
-# release-please opens (version bump + CHANGELOG only, see release-please.yml).
+# main only takes releases from develop and emergency fixes from hotfix/*.
 # The "source-branch" check is required on main by the repository ruleset.
 on:
   pull_request:
@@ -14,7 +13,7 @@ jobs:
   source-branch:
     runs-on: ubuntu-latest
     steps:
-      - name: Check the PR comes from develop, hotfix/* or release-please
+      - name: Check the PR comes from develop or hotfix/*
         env:
           HEAD_REF: ${{ github.head_ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -25,7 +24,7 @@ jobs:
             exit 1
           fi
           case "$HEAD_REF" in
-            develop|hotfix/*|release-please--branches--main)
+            develop|hotfix/*)
               echo "OK: '$HEAD_REF' may be merged into main."
               ;;
             *)
