@@ -31,11 +31,13 @@ PING = f"https://hc-ping.com/{UUID}"
 
 def test_redact_removes_tokens_but_keeps_the_message() -> None:
     jwt = make_jwt(9_999_999_999)
-    blob = "A" * 220
-    text = f"failed with Bearer {jwt} and media-user-token={blob} for Amelie Lens"
+    blob = "Ab3" * 70  # token-like: long, mixed case and digits
+    text = f"failed with Bearer {jwt} and media-user-token={blob} for Amelie Lens; raw {blob}"
     clean = redact(text)
     assert jwt not in clean and blob not in clean
     assert "Amelie Lens" in clean and "failed with" in clean
+    path = "/home/user/playlist-generator/src/apple_music_mcp/jobs/snapshot_and_more_words.py"
+    assert redact(f"File {path}") == f"File {path}"  # paths stay readable
 
 
 async def test_ntfy_sends_redacted_alerts(respx_mock: respx.MockRouter) -> None:

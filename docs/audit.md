@@ -113,3 +113,21 @@ Run on the owner's Mac, account storefront `br`. Tokens are not recorded.
 Notes:
 - The developer token found live has about 57 days left. `DeveloperTokenProvider` re-scrapes it automatically on expiry or 401.
 - The user token's expiry date (cookie *Expires*) is not stored yet. That is a Phase 1 item (guide §5).
+
+## 8. Phase 1 delivered (2026-11-06)
+
+Built offline in CI against the fake Apple API. Live checks are in [`validation/phase-1-runbook.md`](validation/phase-1-runbook.md).
+
+| Guide item | Delivered in | Notes |
+|---|---|---|
+| §8.3 ERD [GATE] + migrations | #53 (approved), #55 | `db/schema.py` + Alembic; a test fails if they drift apart |
+| §5 Keychain + `.env`, token expiry | #56 | Secrets moved from the file to the Keychain after a verified read-back; `APPLE_WEB_API_ENABLED` kill switch |
+| §4.1 limits, retry, cache | #57 | ~5 req/s, 3 in flight; 1/2/4 s retries with a 15 s total budget; 7 d / 24 h cache, never for playlists |
+| §6.3 daily doctor, §8.2 snapshots, recently played | #58 | `run <job>`, `schedule install` (launchd); sparse snapshots; recently played at 10:30 / 22:30 |
+| §6.5 backup | #59 | SQLite backup API, integrity check, gzip, iCloud Drive, 7 daily + 4 weekly |
+| §6.1, §6.2, §6.4, §6.6 monitoring | #60 | ntfy, healthchecks.io heartbeat with a Claude Desktop check, pause/resume, token reminders, JSON logs with redaction |
+| §11 mypy strict, release-please | #61 | `strict = true` on src, scripts and tests |
+
+Divergences from §4 that are now closed: SQLite + repository layer, Keychain + `.env`, limiter and caches, monitoring, daily stats snapshots, mypy, release-please. Still open for Phase 2: managed playlists, feedback, blacklist, history tables in use, the two-level mix definitions, and profile families.
+
+Still to verify live: everything in the Phase 1 runbook; the healthchecks.io pause API; `persistent ID` in the Music app on this macOS version; how long the AppleScript library read takes on the owner's library.
