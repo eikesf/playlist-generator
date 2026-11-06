@@ -155,7 +155,7 @@ For managed playlists with `discoveries_enabled` (turn it on with `update_manage
 2. Choose about `target_size` tracks (inside `size_range`) by vibe and purpose. Verify extra picks with `resolve_tracks`. Give each new artist 2-3 tracks. Don't repeat last week.
 3. `submit_weekly_discoveries` (a **write**: only from the scheduled task or when he asks) validates every id and fills the weekly playlist. Read `dropped` (reason per track) and, if the batch was refused for size, replace and submit again. The main playlist is never touched.
 
-Tracks he loves there become **promotion** proposals (approved like the refresh, section 9).
+Tracks he **likes** there (loved, or played at least 3 times with under 25 % skips since the batch arrived) become a weekly **promotion** proposal, at most 20 % of the main playlist and never more than 30 tracks a week. He gets "Promoção pronta para <playlist>". Review and approve it exactly like the refresh (section 9): `show_proposal` (`why`: `loved` or `played Nx, skipped Mx`), `decide_proposal`, `apply_proposal`. Promoted tracks are inserted where they fit (existing order kept) and leave the weekly playlist. Liked tracks waiting for approval stay in the weekly playlist when the next batch arrives.
 
 ## 10. Follow-up
 

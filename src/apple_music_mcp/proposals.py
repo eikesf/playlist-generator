@@ -150,4 +150,10 @@ class ProposalService:
             return await RefreshService(self.app, self.app.music_app).apply_refresh(
                 proposal_id, purpose=purpose, estimates=estimates, allow_rebuild=allow_rebuild
             )
+        if p["kind"] == "promotion":
+            from .promotion import PromotionService
+
+            return await PromotionService(self.app).apply(
+                proposal_id, purpose=purpose, estimates=estimates, allow_rebuild=allow_rebuild
+            )
         raise ValueError(f"{p['kind']} proposals are not applied here")

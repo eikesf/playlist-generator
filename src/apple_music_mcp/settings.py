@@ -118,6 +118,11 @@ class AppSettings:
     proposal_ttl_days: int = 7
     # Weekly Discoveries (guide §7.11): target batch size (accepted between 2/3 and 4/3 of it).
     discoveries_size: int = 30
+    # Promotion of liked discoveries (guide §7.11): "liked" criterion and weekly cap.
+    promote_min_plays: int = 3
+    promote_max_skip_ratio: float = 0.25
+    promote_weekly_fraction: float = 0.2
+    promote_weekly_max: int = 30
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -152,6 +157,10 @@ class AppSettings:
             refresh_skip_ratio=_ratio("REFRESH_SKIP_RATIO", d.refresh_skip_ratio),
             proposal_ttl_days=max(1, _int("PROPOSAL_TTL_DAYS", d.proposal_ttl_days)),
             discoveries_size=max(3, _int("DISCOVERIES_SIZE", d.discoveries_size)),
+            promote_min_plays=max(1, _int("PROMOTE_MIN_PLAYS", d.promote_min_plays)),
+            promote_max_skip_ratio=_ratio("PROMOTE_MAX_SKIP_RATIO", d.promote_max_skip_ratio),
+            promote_weekly_fraction=_ratio("PROMOTE_WEEKLY_FRACTION", d.promote_weekly_fraction),
+            promote_weekly_max=max(0, min(30, _int("PROMOTE_WEEKLY_MAX", d.promote_weekly_max))),
         )
 
     def redacted(self) -> dict[str, object]:
