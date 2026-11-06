@@ -172,7 +172,7 @@ Built offline against the fake Apple API (297 tests, mypy strict). Live checks a
 | §7.11 Weekly Discoveries curated by Claude | #78 | Context + validated submit; Desktop scheduled-task prompt in `docs/scheduled-tasks/weekly-discoveries.md` |
 | §7.11 promotion with cap | #79 | Liked = loved or ≥ 3 plays with skip ratio < 0.25; ≤ 20 % of the main playlist and ≤ 30 per week |
 | Data model decision 6 (deferred from Phase 2) | #80 | Pending playlists are approved `create` proposals; old key imported once |
-| Docs | this PR | Skill, READMEs, CLAUDE.md, ADR 0010 amendment, runbook |
+| Docs | #81 | Skill, READMEs, CLAUDE.md, ADR 0010 amendment, runbook |
 
 No schema change was needed: every new behaviour uses the approved ERD (per-item evidence lives in `proposal.params`).
 
