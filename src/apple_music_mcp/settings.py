@@ -51,6 +51,23 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def _weekday(name: str, default: str) -> str:
+    raw = os.environ.get(name, "").strip().lower()
+    return raw if raw in WEEKDAYS else default
+
+
+def _ratio(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        return default
+    return value if 0 <= value <= 1 else default
+
+
 def _str(name: str, default: str | None = None) -> str | None:
     raw = os.environ.get(name, "").strip()
     return raw or default
@@ -90,6 +107,22 @@ class AppSettings:
     known_min_plays: int = 10
     refresh_auto_apply: bool = False
     token_reminder_days: int = 7
+    # Weekly refresh (guide §7.10): default slot (local time), evidence window and thresholds.
+    refresh_weekday: str = "monday"
+    refresh_time: str = "09:00"
+    refresh_window_days: int = 42
+    refresh_min_history_days: int = 14
+    refresh_min_days_in_playlist: int = 14
+    refresh_min_skips: int = 3
+    refresh_skip_ratio: float = 0.5
+    proposal_ttl_days: int = 7
+    # Weekly Discoveries (guide §7.11): target batch size (accepted between 2/3 and 4/3 of it).
+    discoveries_size: int = 30
+    # Promotion of liked discoveries (guide §7.11): "liked" criterion and weekly cap.
+    promote_min_plays: int = 3
+    promote_max_skip_ratio: float = 0.25
+    promote_weekly_fraction: float = 0.2
+    promote_weekly_max: int = 30
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -113,6 +146,21 @@ class AppSettings:
             known_min_plays=_int("KNOWN_MIN_PLAYS", d.known_min_plays),
             refresh_auto_apply=_bool("REFRESH_AUTO_APPLY", d.refresh_auto_apply),
             token_reminder_days=_int("TOKEN_REMINDER_DAYS", d.token_reminder_days),
+            refresh_weekday=_weekday("REFRESH_WEEKDAY", d.refresh_weekday),
+            refresh_time=(_times("REFRESH_TIME", d.refresh_time) or [d.refresh_time])[0],
+            refresh_window_days=max(7, _int("REFRESH_WINDOW_DAYS", d.refresh_window_days)),
+            refresh_min_history_days=max(1, _int("REFRESH_MIN_HISTORY_DAYS", d.refresh_min_history_days)),
+            refresh_min_days_in_playlist=max(
+                0, _int("REFRESH_MIN_DAYS_IN_PLAYLIST", d.refresh_min_days_in_playlist)
+            ),
+            refresh_min_skips=max(1, _int("REFRESH_MIN_SKIPS", d.refresh_min_skips)),
+            refresh_skip_ratio=_ratio("REFRESH_SKIP_RATIO", d.refresh_skip_ratio),
+            proposal_ttl_days=max(1, _int("PROPOSAL_TTL_DAYS", d.proposal_ttl_days)),
+            discoveries_size=max(3, _int("DISCOVERIES_SIZE", d.discoveries_size)),
+            promote_min_plays=max(1, _int("PROMOTE_MIN_PLAYS", d.promote_min_plays)),
+            promote_max_skip_ratio=_ratio("PROMOTE_MAX_SKIP_RATIO", d.promote_max_skip_ratio),
+            promote_weekly_fraction=_ratio("PROMOTE_WEEKLY_FRACTION", d.promote_weekly_fraction),
+            promote_weekly_max=max(0, min(30, _int("PROMOTE_WEEKLY_MAX", d.promote_weekly_max))),
         )
 
     def redacted(self) -> dict[str, object]:
@@ -132,4 +180,9 @@ class AppSettings:
             "heartbeat_minutes": self.heartbeat_minutes,
             "known_min_plays": self.known_min_plays,
             "refresh_auto_apply": self.refresh_auto_apply,
+            "refresh_weekday": self.refresh_weekday,
+            "refresh_time": self.refresh_time,
+            "refresh_window_days": self.refresh_window_days,
+            "refresh_min_history_days": self.refresh_min_history_days,
+            "proposal_ttl_days": self.proposal_ttl_days,
         }

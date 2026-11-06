@@ -7,9 +7,9 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from ..config import credentials_path
-from ..curation.familiarity import MixTargets
 from ..resolver import resolve_tracks
 from .base import ContainerProvider, tool_errors
+from .curation_tools import mix_targets
 
 DEVELOPER_TOKEN_NOTE = (
     "The developer token renews itself: it is re-read from music.apple.com when it expires or Apple "
@@ -92,24 +92,32 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
     @mcp.tool(name="resolve_tracks")
     @tool_errors
     async def resolve_tracks_tool(
-        tracks: list[str], known_tracks_pct: float | None = None, known_artists_pct: float | None = None
+        tracks: list[str],
+        known_artists_pct: float | None = None,
+        known_tracks_within_known_artists_pct: float | None = None,
+        known_tracks_pct: float | None = None,
     ) -> dict[str, Any]:
         """Verify a list of tracks against the Apple Music catalog, in order.
 
         Each item: "Artist1, Artist2 - Title (Remix)". Returns per-track status (matched /
         low_confidence / not_found), the catalog `song_ids_in_order` for matched tracks, duplicates
         removed and the total duration. Only use ids from `matched` (or low_confidence after review).
-        When logged in, each match gets `familiarity`: known_track / known_artist_new_track /
-        new_artist (from the user's library, recently played and top artists) and `disliked`/`loved`
-        from their ratings; the summary gives the real known_tracks_pct and known_artists_pct. Pass the
-        user's targets to get `summary.mix_check` (deltas + what to swap). Drop disliked tracks.
-        """
+        When logged in, each match gets `familiarity` with the owner's definitions: known_track (loved
+        or played 10+ times), known_artist_new_track (never heard, by an artist with a known track),
+        new_artist, or partly_known (in the library or 1-9 plays: counts as neither; swap it). Rows
+        also carry `plays`, `loved`, `disliked`. The summary gives the real level 1 / level 2 shares;
+        pass the user's targets (same arguments as plan_playlist) to get `summary.mix_check`
+        (deltas + what to swap). Drop disliked tracks."""
         app = provider.get()
         report = await resolve_tracks(app.catalog, list(tracks))
         if app.has_user_token:
             targets = None
-            if known_tracks_pct is not None or known_artists_pct is not None:
-                kt = known_tracks_pct if known_tracks_pct is not None else 0
-                targets = MixTargets(kt, known_artists_pct if known_artists_pct is not None else kt)
+            if any(
+                v is not None
+                for v in (known_artists_pct, known_tracks_within_known_artists_pct, known_tracks_pct)
+            ):
+                targets, _ = mix_targets(
+                    known_artists_pct, known_tracks_within_known_artists_pct, known_tracks_pct
+                )
             return await app.discovery.annotate(report, targets)
         return report.to_dict()

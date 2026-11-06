@@ -55,7 +55,8 @@ Ele foi construído de forma autônoma, durante uma noite, pelo Claude Code a pa
 - **Sequencia como um DJ, com andamento real.** O BPM é **medido** em bases públicas (GetSongBPM com uma chave gratuita, Deezer sem chave) e só cai para a estimativa do Claude quando a faixa não é encontrada. Leituras em meio tempo ou tempo dobrado são corrigidas. O Claude estima a energia de cada faixa, e um algoritmo determinístico ordena as faixas ao longo da curva de energia da finalidade, com passos suaves de andamento, sem o mesmo artista em sequência e respeitando faixas fixadas.
 - **Cria a playlist na sua biblioteca**, em ordem, com nome e descrição. O iCloud sincroniza com o iPhone.
 - **Edita playlists existentes sem quebrar a vibe.** Faixas novas são **inseridas exatamente onde se encaixam**: a ordem atual fica intacta e cada faixa nova vai para a posição que melhor combina com a curva de energia, o fluxo de BPM e o espaçamento entre artistas. Remover uma faixa mantém o resto em ordem. Você também pode reordenar, renomear ou resequenciar tudo quando pedir. As edições são verificadas lendo a playlist de volta.
-- **Renova sem perder nada.** Uma renovação semanal (sob demanda ou agendada no Mac) enche uma playlist separada, **"<nome> · Descobertas"**, com faixas novas. As que você ama ou ouve muito ali são sugeridas para promoção à playlist principal, na posição certa. Ela sugere tirar as faixas menos ouvidas só quando a contagem de reproduções do seu Mac realmente distingue as faixas, e sinaliza as que você marcou como "não gostei". **Nada sai da playlist principal sem a sua confirmação**, e tudo o que sai é copiado antes para **"<nome> · Arquivo"**.
+- **Renova sem perder nada.** Nas playlists em que você ativar, uma tarefa semanal no Mac (segunda às 09:00, por padrão) monta uma **proposta**: faixas muito puladas ou não tocadas nas últimas semanas (pelos snapshots diários de plays e pulos, só depois de pelo menos 14 dias de histórico), as que você marcou como "não gostei", e uma substituta coerente para cada uma. Você escolhe por playlist se ela mantém o tamanho ou cresce N faixas por semana. O celular recebe um aviso e você aprova item por item numa conversa com o Claude (Mac ou Dispatch). **Nada sai da playlist principal sem a sua confirmação**, e tudo o que sai é copiado antes para **"<nome> · Arquivo"**.
+- **Descobertas da semana, curadas pelo Claude.** Uma tarefa agendada do Claude Desktop escolhe umas 30 faixas novas por semana para **"<nome> · Weekly Discoveries"**. O código confere cada escolha: catálogo, blacklist, "não gostei", músicas que você já conhece. As que você ama ali viram uma proposta de promoção, limitada a 20% da playlist principal e a 30 faixas por semana, e entram na posição certa quando você aprova.
 - **Tudo acontece dentro do Apple Music.** Não há arquivos de exportação nem importadores de terceiros. Se a API do catálogo estiver indisponível, a busca cai para a API pública de busca do iTunes, da própria Apple. Se o seu login expirou, a playlist fica guardada como **pendente** (mesmas faixas e ordem) e é criada com um comando depois do `apple-music-mcp login`.
 - **Se diagnostica sozinho.** `apple-music-mcp doctor --write` testa a cadeia inteira ao vivo: token, busca, conta, criar, reordenar, apagar.
 
@@ -145,7 +146,7 @@ O servidor também guarda um histórico local, para o refresh e o futuro painel 
 
 ```bash
 cp .env.example ~/.config/apple-music-mcp/.env   # depois edite: tópico do ntfy, URL do healthchecks, horários
-apple-music-mcp schedule install                  # tarefas do launchd: doctor, snapshot, tocadas recentemente, backup, heartbeat
+apple-music-mcp schedule install                  # tarefas do launchd: doctor, snapshot, tocadas recentemente, backup, heartbeat, refresh_plan
 apple-music-mcp run snapshot                      # primeiro snapshot agora (depois: diário)
 ```
 
@@ -156,6 +157,7 @@ apple-music-mcp run snapshot                      # primeiro snapshot agora (dep
 | `snapshot` | 23:40 | Guarda os contadores de plays e pulos do app Música (só o que mudou) |
 | `backup` | 23:50 | Cópia verificada e comprimida do banco no iCloud Drive (7 diárias + 4 semanais) |
 | `heartbeat` | a cada 10 min | Avisa o healthchecks.io que o Mac está vivo; acusa quando o Claude Desktop está fechado |
+| `refresh_plan` | segunda 09:00 | **Propostas** de renovação e promoção para as playlists ativadas (só leitura), com aviso pelo ntfy; você aprova no Claude |
 
 Os alertas chegam no celular pelo **ntfy** (app grátis; escolha um tópico longo e aleatório). O heartbeat usa um check grátis do **healthchecks.io**: se o Mac parar de avisar, o healthchecks manda e-mail. Vai viajar? `apple-music-mcp pause --until 2026-12-20` (e `resume` na volta). Tudo fica em `~/.config/apple-music-mcp/apple-music-mcp.db` (SQLite). Os logs ficam em `~/Library/Logs/apple-music-mcp/`.
 
@@ -197,13 +199,16 @@ O que você recebe: o link da playlist, as faixas agrupadas por ato com as dura�
 | `remove_tracks_from_playlist` | Remove faixas e mantém o resto em ordem |
 | `rename_playlist` | Muda o nome e/ou a descrição |
 | `list_playlists` / `get_playlist_tracks` | Lê a sua biblioteca |
-| `plan_playlist_refresh` | Plano de renovação só de leitura: candidatas menos ouvidas (quando dá para identificar) e marcadas como "não gostei", descobertas adicionadas em "· Descobertas", candidatas à promoção |
-| `apply_playlist_refresh` | Aplica só o que você confirmou: arquiva e depois remove, promove para a playlist principal na melhor posição |
+| `plan_playlist_refresh` | Monta agora uma proposta de renovação (só leitura): faixas muito puladas / não tocadas / com "não gostei", cada uma com uma substituta |
+| `apply_playlist_refresh` | Remove faixas que você citou diretamente: arquiva antes e remove mantendo a ordem |
+| `list_pending_proposals` / `show_proposal` | Propostas semanais de renovação e promoção esperando você, com plays, pulos e motivos |
+| `decide_proposal` / `apply_proposal` | Aceita ou rejeita item por item (com o seu motivo) e aplica só o que você aceitou |
+| `weekly_discoveries_context` / `submit_weekly_discoveries` | O que o Claude precisa para curar as descobertas da semana, e a gravação validada do lote |
 | `finish_pending_playlists` | Cria as playlists que ficaram pendentes enquanto o login estava expirado |
 
-CLI: `apple-music-mcp serve | login [--browser] [--expires AAAA-MM-DD] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | run <tarefa> | schedule install|uninstall | pause [--until DATA] | resume | refresh --playlist NOME | schedule-refresh --playlist NOME`.
+CLI: `apple-music-mcp serve | login [--browser] [--expires AAAA-MM-DD] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | run <tarefa> | schedule install|uninstall | pause [--until DATA] | resume | refresh --playlist NOME`.
 
-**Renovação semanal no Mac (opcional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` grava um agente do launchd (segunda-feira às 10:07, por padrão) e mostra o comando `launchctl load`. Ele roda só o plano de leitura: enche "· Descobertas" e mostra uma notificação. As contagens de reprodução vêm do app Música via AppleScript, e o macOS pede permissão uma vez (Ajustes do Sistema → Privacidade e Segurança → Automação).
+**Renovação semanal (opcional):** numa conversa, ative por playlist ("liga o refresh semanal da <playlist>") e rode `apple-music-mcp schedule install`. A tarefa `refresh_plan` só lê; quem decide é você, no Claude. `refresh --playlist NOME` monta uma proposta na hora. **Descobertas da semana:** veja [docs/scheduled-tasks/weekly-discoveries.md](docs/scheduled-tasks/weekly-discoveries.md) para a tarefa agendada do Claude Desktop (prompt pronto para colar). O comando antigo `schedule-refresh` foi aposentado: ele remove o agente antigo e explica o fluxo novo.
 
 **BPM melhor (opcional):** crie uma chave gratuita em [getsongbpm.com/api](https://getsongbpm.com/api) e rode `apple-music-mcp set-bpm-key`. Sem chave, é usada a API pública do Deezer. Dados de andamento cortesia de [GetSongBPM](https://getsongbpm.com) e [Deezer](https://www.deezer.com). Confira os termos deles sobre atribuição se for compartilhar ou publicar resultados.
 

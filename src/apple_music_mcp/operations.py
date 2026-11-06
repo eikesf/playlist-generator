@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from typing import Any
 
 from .apple.errors import AuthError
 from .bpm.service import align_octave
 from .container import AppContainer
-from .curation.profiles import get_profile
 from .curation.sequencer import TrackFeatures, insert_tracks
+from .db.history import ProposalRepository, ProposedTrack
+from .db.repositories import TrackInfo
 
 
 async def fill_durations(app: AppContainer, features: list[TrackFeatures]) -> None:
@@ -49,8 +49,23 @@ async def insert_into_playlist(
     new_tracks: list[dict[str, Any]],
     current_estimates: list[dict[str, Any]] | None = None,
     allow_rebuild: bool = False,
+    *,
+    origin: str = "session",
+    proposal_id: int | None = None,
 ) -> dict[str, Any]:
-    """Insert tracks at their best positions keeping the current order (see ADR 0005)."""
+    """Insert tracks at their best positions keeping the current order (see ADR 0005).
+    Tracks on the blacklist are never inserted. ``origin`` / ``proposal_id`` go to the history."""
+    banned = app.blacklist()
+    blocked = [
+        {"song_id": str(t["id"]), "reason": r}
+        for t in new_tracks
+        if (r := banned.blocked_reason(str(t["id"]), str(t.get("artist") or ""), str(t.get("title") or "")))
+    ]
+    if blocked:
+        skip = {b["song_id"] for b in blocked}
+        new_tracks = [t for t in new_tracks if str(t["id"]) not in skip]
+        if not new_tracks:
+            return {"changed": False, "inserted": [], "blocked_by_blacklist": blocked, "warnings": []}
     entries = await app.library.playlist_tracks(playlist_id)
     estimates = {str(t["id"]): t for t in current_estimates or []}
     new_ids = {str(t["id"]) for t in new_tracks}
@@ -73,7 +88,7 @@ async def insert_into_playlist(
         base.append(f)
     new = [TrackFeatures.from_dict(t) for t in new_tracks]
     await enrich_features(app, base + new)
-    plan = insert_tracks(get_profile(purpose), base, new)
+    plan = insert_tracks(app.profiles.get(purpose), base, new)
     unestimated = sum(1 for f in base if f.energy is None)
     if unestimated:
         plan["warnings"].append(
@@ -83,65 +98,116 @@ async def insert_into_playlist(
         plan["warnings"].append(f"Already in the playlist, moved to their best position: {already}")
     if not plan["inserted"]:
         return {"changed": False, "inserted": [], "warnings": plan["warnings"]}
-    result = await app.editor.sync(playlist_id, plan["song_ids_in_order"], allow_rebuild)
-    return {
+    from .sessions import sync_with_history
+
+    result = await sync_with_history(
+        app, playlist_id, plan["song_ids_in_order"], allow_rebuild, origin=origin, proposal_id=proposal_id
+    )
+    out = {
         "edit": result.to_dict(),
         "inserted": plan["inserted"],
         "existing_order_preserved": True,
         "warnings": plan["warnings"],
     }
+    if blocked:
+        out["blocked_by_blacklist"] = blocked
+    return out
 
 
-PENDING_KEY = "pending_playlists"
 # Module-level alias: inside PendingPlaylists, `list` names the method, not the builtin.
 Drafts = list[dict[str, Any]]
+Infos = list[TrackInfo]
 
 
 class PendingPlaylists:
     """Playlists that could not be created because the login expired; finished after `login`.
 
+    Each one is a ``create`` proposal that is ``approved`` but not yet ``applied``, with
+    ``params.pending`` (data model decision 6): the exact song ids, in order, are kept in the params.
     Everything stays inside the app: no export files, no third-party importers.
     """
 
     def __init__(self, app: AppContainer):
         self.app = app
+        self.repo = ProposalRepository(app.db)
+
+    def _rows(self) -> Drafts:
+        rows = self.repo.find(statuses=("approved",), kind="create")
+        return [p for p in reversed(rows) if (p["params"] or {}).get("pending")]
 
     def list(self) -> Drafts:
-        return list(self.app.state.get(PENDING_KEY, []) or [])
+        return [
+            {
+                "proposal_id": p["id"],
+                "name": p["params"]["name"],
+                "description": p["params"].get("description"),
+                "song_ids": [*(p["params"].get("song_ids") or [])],
+                "saved_at": p["created_at"],
+            }
+            for p in self._rows()
+        ]
 
-    def add(self, name: str, description: str | None, song_ids: Sequence[str]) -> dict[str, Any]:
-        items = [p for p in self.list() if p["name"] != name]
-        draft = {"name": name, "description": description, "song_ids": [*song_ids], "saved_at": time.time()}
-        self.app.state.set(PENDING_KEY, [*items, draft])
-        return draft
+    async def _infos(self, song_ids: Sequence[str]) -> Infos:
+        catalog = [i for i in song_ids if not i.startswith("i.")]
+        songs: dict[str, Any] = {}
+        if catalog:
+            try:
+                songs = {s.id: s for s in await self.app.catalog.get_songs(catalog)}
+            except Exception:  # noqa: BLE001 - names are a nicety; the ids are what matters
+                songs = {}
+        out: Infos = []
+        for sid in song_ids:
+            if sid in songs:
+                out.append(TrackInfo(songs[sid].name, songs[sid].artist, catalog_id=sid))
+            elif sid.startswith("i."):
+                out.append(TrackInfo(sid, "", library_id=sid))
+            else:
+                out.append(TrackInfo(sid, "", catalog_id=sid))
+        return out
+
+    async def add(
+        self, name: str, description: str | None, song_ids: Sequence[str], *, created_at: Any = None
+    ) -> dict[str, Any]:
+        self.discard(name)  # same name: the newer draft wins, the older one stays as rejected
+        ids = [str(i) for i in song_ids]
+        infos = await self._infos([*dict.fromkeys(ids)])
+        proposal_id = self.repo.create(
+            "create",
+            [ProposedTrack(info, decision="accepted") for info in infos],
+            status="approved",
+            created_at=created_at,
+            params={"name": name, "description": description, "song_ids": ids, "pending": True},
+        )
+        return {"proposal_id": proposal_id, "name": name, "description": description, "song_ids": ids}
 
     def discard(self, name: str) -> bool:
-        items = self.list()
-        kept = [p for p in items if p["name"] != name]
-        self.app.state.set(PENDING_KEY, kept)
-        return len(kept) != len(items)
+        found = [p for p in self._rows() if p["params"]["name"] == name]
+        for p in found:
+            self.repo.set_status(p["id"], "rejected")
+        return bool(found)
 
     async def finish(self) -> Drafts:
         """Create every pending playlist now (after a successful login)."""
         done = []
         for draft in self.list():
             result = await create_with_tracks(
-                self.app, draft["name"], draft.get("description"), draft["song_ids"]
+                self.app, draft["name"], draft.get("description"), draft["song_ids"], keep_pending=False
             )
-            self.discard(draft["name"])
+            self.repo.set_status(draft["proposal_id"], "applied")
             done.append(result)
         return done
 
 
 async def create_with_tracks(
-    app: AppContainer, name: str, description: str | None, song_ids: list[str]
+    app: AppContainer, name: str, description: str | None, song_ids: list[str], *, keep_pending: bool = True
 ) -> dict[str, Any]:
     """Create a library playlist and add the tracks in order. If the Apple Music login has expired,
-    the playlist is kept as pending (state file) and an AuthError tells the user to log in again."""
+    the playlist is kept as pending (a ``create`` proposal) and an AuthError tells the user to log in."""
     try:
         playlist = await app.library.create_playlist(name, description or None)
     except AuthError as exc:
-        PendingPlaylists(app).add(name, description, song_ids)
+        if keep_pending:
+            await PendingPlaylists(app).add(name, description, song_ids)
         raise AuthError(
             f"{exc} The playlist '{name}' ({len(song_ids)} tracks, verified and ordered) was saved as "
             "pending. After `apple-music-mcp login`, call `finish_pending_playlists` (or run "

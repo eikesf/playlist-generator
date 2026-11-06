@@ -6,8 +6,11 @@ Knowing an artist is not knowing all their songs, so a track falls in one of thr
 * ``known_artist_new_track``  - new song by an artist the user listens to (a "deep cut")
 * ``new_artist``              - a discovery: the user does not know the artist yet
 
-Two targets drive the mix: ``known_tracks_pct`` (share of known songs) and ``known_artists_pct``
-(share of tracks by known artists, which includes the known songs).
+The owner thinks in two levels (guide §7.4): **level 1** is the share of tracks by known artists;
+**level 2** is, *within* those, the share of songs already known. Default: 50 % known artists,
+30 % known songs within them (so 15 % of the playlist is known songs). Internally the targets are
+kept as shares of the whole playlist (``known_tracks_pct`` <= ``known_artists_pct``).
+Tracks that are only partly known (1-9 plays, not loved) belong to no bucket: see ``known.py``.
 """
 
 from __future__ import annotations
@@ -23,10 +26,33 @@ LABELS = {
 }
 
 
+DEFAULT_KNOWN_ARTISTS_PCT = 50.0
+DEFAULT_KNOWN_WITHIN_ARTISTS_PCT = 30.0
+
+
 @dataclass(frozen=True)
 class MixTargets:
     known_tracks_pct: float
     known_artists_pct: float
+
+    @classmethod
+    def from_levels(
+        cls, known_artists_pct: float, known_tracks_within_known_artists_pct: float
+    ) -> MixTargets:
+        """Level 1 (% of the playlist by known artists) and level 2 (% known songs within them)."""
+        ka = min(100.0, max(0.0, known_artists_pct))
+        within = min(100.0, max(0.0, known_tracks_within_known_artists_pct))
+        return cls(round(ka * within / 100, 2), ka)
+
+    @classmethod
+    def default(cls) -> MixTargets:
+        return cls.from_levels(DEFAULT_KNOWN_ARTISTS_PCT, DEFAULT_KNOWN_WITHIN_ARTISTS_PCT)
+
+    @property
+    def known_within_known_artists_pct(self) -> float:
+        return (
+            round(100 * self.known_tracks_pct / self.known_artists_pct, 1) if self.known_artists_pct else 0.0
+        )
 
     def normalized(self) -> tuple[MixTargets, list[str]]:
         warnings = []
@@ -54,6 +80,7 @@ def mix_counts(total: int, targets: MixTargets) -> dict[str, Any]:
     return {
         "known_tracks_pct": t.known_tracks_pct,
         "known_artists_pct": t.known_artists_pct,
+        "known_tracks_within_known_artists_pct": t.known_within_known_artists_pct,
         "total_tracks": total,
         "counts": counts,
         "description": {b: f"{counts[b]} {LABELS[b]}" for b in BUCKETS},

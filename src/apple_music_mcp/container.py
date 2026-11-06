@@ -16,11 +16,14 @@ from .apple.transport import AmpTransport
 from .bpm.providers import BpmProvider, DeezerProvider, GetSongBpmProvider
 from .bpm.service import BpmService
 from .config import STATE_FILE, Credentials, CredentialStore, config_dir
+from .curation.registry import ProfileRegistry
 from .db import Database
 from .db.cache import ResponseCache
+from .db.repositories import ListeningRepository, ProfileRepository
 from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
+from .feedback import Blacklist, BlacklistRepository, FeedbackRepository
 from .local_music import MusicAppReader
 from .ports import KeyValueStore
 from .settings import AppSettings
@@ -60,6 +63,9 @@ class AppContainer:
         # One limiter per service, shared by every caller (guide §4.1: ~5 req/s, 3 in flight).
         self.apple_limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)
         self.cache = ResponseCache(self.db)
+        self.profiles = ProfileRegistry(ProfileRepository(self.db))
+        self.blacklist_entries = BlacklistRepository(self.db)
+        self.feedback = FeedbackRepository(self.db)
         self.transport = AmpTransport(
             self._http,
             self.credentials,
@@ -75,7 +81,13 @@ class AppContainer:
         self.library = LibraryService(self.transport)
         self.editor = PlaylistEditor(self.library, self.state)
         self.taste = TasteService(self.transport, self.state)
-        self.discovery = DiscoveryService(self.catalog, self.taste)
+        self.discovery = DiscoveryService(
+            self.catalog,
+            self.taste,
+            ListeningRepository(self.db),
+            min_plays=self.settings.known_min_plays,
+            blacklist=self.blacklist,
+        )
         providers: list[BpmProvider] = []
         if self.credentials.getsongbpm_api_key:
             providers.append(
@@ -85,6 +97,10 @@ class AppContainer:
             providers.append(DeezerProvider(self._http, retry=retry, sleep=sleep))
         self.bpm = BpmService(providers, self.state)
         self.music_app = music_app or MusicAppReader()
+        if isinstance(self.state, SettingsStore):
+            from .legacy import import_legacy_state
+
+            import_legacy_state(self)
 
     def storefront(self) -> str:
         return self.credentials.storefront
@@ -95,6 +111,10 @@ class AppContainer:
 
     def set_persist(self, persist: bool) -> None:
         self.tokens.store = self.store if persist else None
+
+    def blacklist(self) -> Blacklist:
+        """The active blacklist, read fresh (it is small and edited from the chat)."""
+        return Blacklist(self.blacklist_entries.active())
 
     @property
     def http(self) -> httpx.AsyncClient:

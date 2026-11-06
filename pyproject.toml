@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apple-music-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server that lets Claude curate playlists and create them directly in Apple Music, using the web-player session (no paid developer account)."
 readme = "README.md"
 requires-python = ">=3.11"

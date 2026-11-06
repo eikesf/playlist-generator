@@ -9,7 +9,9 @@
       "bump-minor-pre-major": true,
       "extra-files": [
         "src/apple_music_mcp/__init__.py"
-      ]
+      ],
+      "include-component-in-tag": false
     }
-  }
+  },
+  "last-release-sha": "8ef7e6fe71d17c82c05671d82b8aa4ef41562d2c"
 }

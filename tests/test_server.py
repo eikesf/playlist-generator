@@ -16,6 +16,12 @@ from .conftest import build_app, result_text
 from .fake_apple import FakeAppleMusic
 
 EXPECTED_TOOLS = {
+    "weekly_discoveries_context",
+    "submit_weekly_discoveries",
+    "list_pending_proposals",
+    "show_proposal",
+    "decide_proposal",
+    "apply_proposal",
     "auth_status",
     "search_songs",
     "artist_top_songs",
@@ -26,6 +32,24 @@ EXPECTED_TOOLS = {
     "get_playlist_tracks",
     "finish_pending_playlists",
     "list_playlist_profiles",
+    "start_session",
+    "record_answer",
+    "preview_playlist",
+    "reject_preview_tracks",
+    "approve_preview",
+    "adopt_playlist",
+    "list_managed_playlists",
+    "update_managed_playlist",
+    "playlist_history",
+    "dislike_track",
+    "resolve_dislike",
+    "list_dislikes",
+    "blacklist_add",
+    "blacklist_remove",
+    "blacklist_list",
+    "profile_curve",
+    "create_profile",
+    "delete_profile",
     "plan_playlist",
     "order_tracks",
     "reorder_playlist",
@@ -204,3 +228,15 @@ async def test_editing_tools_via_mcp(server_factory: Any, fake_apple: FakeAppleM
             await c.call_tool("rename_playlist", {"playlist_id": pid, "name": "Set v2"})
         ).structured_content
         assert renamed["playlist"]["name"] == "Set v2"
+
+
+async def test_skill_is_served_as_prompt_and_resource(server_factory: Any) -> None:
+    async with Client(server_factory()) as c:
+        prompts = {p.name for p in (await c.list_prompts()).prompts}
+        assert "playlist-curator" in prompts
+        prompt = await c.get_prompt("playlist-curator", {})
+        text = getattr(prompt.messages[0].content, "text", "")
+        assert "edit or create" in text.lower() or "editar uma playlist" in text.lower()
+        resource = await c.read_resource("skill://playlist-curator")
+        body = getattr(resource.contents[0], "text", "")
+        assert "preview_playlist" in body

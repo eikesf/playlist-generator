@@ -131,3 +131,51 @@ Built offline in CI against the fake Apple API. Live checks are in [`validation/
 Divergences from §4 that are now closed: SQLite + repository layer, Keychain + `.env`, limiter and caches, monitoring, daily stats snapshots, mypy, release-please. Still open for Phase 2: managed playlists, feedback, blacklist, history tables in use, the two-level mix definitions, and profile families.
 
 Still to verify live: everything in the Phase 1 runbook; the healthchecks.io pause API; `persistent ID` in the Music app on this macOS version; how long the AppleScript library read takes on the owner's library.
+
+## 9. Phase 2 delivered (2026-11-06)
+
+| Guide item | Delivered in | Notes |
+|---|---|---|
+| §7.3 profile families, focus, AI-created profiles | #66 | Curves sent to the owner for validation |
+| §7.4 known = loved or ≥ 10 plays; two-level mix, default 50/30 | #67 | ADR 0012; falls back until the first snapshot |
+| §7.1, §7.2, §7.6, §7.7, §8.1 sessions, preview, managed playlists, history | #68 | Rejections kept with their reason and returned as `avoid` |
+| §7.8 "não gostei", §7.9 blacklist | #69 | The blacklist is enforced at every entry point |
+| §4 skill served by the server; §7.5 default 5 h; §7.12 English names | this PR | `playlist-curator` prompt + `skill://` resource |
+
+Still open, deferred to Phase 3: pending playlists still live in `setting` (data model decision 6 moves them into `proposal`), and the refresh still keeps its plans in `setting`. Both move to `proposal` together with the refresh rework.
+
+## 10. Phase 1 live validation (2026-11-06, owner's Mac)
+
+| Step | Result | Detail |
+|---|---|---|
+| Keychain | ok | `status`: secrets in the macOS Keychain; `credentials.json` holds no token |
+| `login` with expiry | ok | Expiry estimated (owner left the date empty): 2027-05-05 |
+| `run heartbeat` | ok | healthchecks.io pinged (10 min period, 8 h grace); Claude Desktop detected running |
+| `run doctor` | ok | All 11 checks ok, including AppleScript with persistent IDs |
+| `run snapshot` | ok | 747 library tracks, baseline written (the guide's known-track definitions are now active) |
+| `run recent_played` | ok | 50 items, 0 stations, no overflow |
+| `run backup` | ok | 156 KB in iCloud Drive/apple-music-mcp-backups |
+| `schedule install` | ok | 5 launchd agents loaded (doctor 08:10, snapshot 23:40, recent 10:30/22:30, backup 23:50, heartbeat 10 min) |
+
+ntfy: topic configured by the owner (not recorded here). Still to confirm: a real ntfy alert on a failure, and `pause` with the healthchecks API key (optional).
+
+## 11. Phase 3 delivered (2026-11-06)
+
+Built offline against the fake Apple API (297 tests, mypy strict). Live checks are in [`validation/phase-3-runbook.md`](validation/phase-3-runbook.md); the plan and the decisions on open points are in [`plans/phase-3.md`](plans/phase-3.md).
+
+| Guide item | Delivered in | Notes |
+|---|---|---|
+| Plan | #74 | Decisions taken for the open points, questions for the owner |
+| §7.10 refresh as proposals, play/skip windows | #75 | Read-only plan; rotation needs ≥ 14 days of snapshots; one-for-one replacements in the same familiarity bucket; old `refresh_plans` imported once |
+| §7.10 weekly job, §6.2 alert | #76 | `refresh_plan` (Monday 09:00, per playlist slot), expiry after 7 days, ntfy "Refresh pronto…", `REFRESH_AUTO_APPLY` path ready but off; `schedule-refresh` retired |
+| §7.10 approval via Dispatch | #77 | `list_pending_proposals`, `show_proposal`, `decide_proposal`, `apply_proposal` |
+| §7.11 Weekly Discoveries curated by Claude | #78 | Context + validated submit; Desktop scheduled-task prompt in `docs/scheduled-tasks/weekly-discoveries.md` |
+| §7.11 promotion with cap | #79 | Liked = loved or ≥ 3 plays with skip ratio < 0.25; ≤ 20 % of the main playlist and ≤ 30 per week |
+| Data model decision 6 (deferred from Phase 2) | #80 | Pending playlists are approved `create` proposals; old key imported once |
+| Docs | #81 | Skill, READMEs, CLAUDE.md, ADR 0010 amendment, runbook |
+
+No schema change was needed: every new behaviour uses the approved ERD (per-item evidence lives in `proposal.params`).
+
+The owner answered the open questions on 2026-11-06 (see the plan): the "liked" criterion, the refresh window and thresholds, the names "· Weekly Discoveries" / "· Arquivo", study = focus and the job times are confirmed. Playlist size became a per-playlist choice: keep the size (default) or grow by `refresh_grow_by` tracks per refresh. Remaining divergence: the plan no longer stages discoveries (now Claude's weekly task).
+
+Still to verify live: the first `refresh_plan` run with real snapshots (rotation starts once 14 days of history exist, around 2026-11-20); the ntfy alert on a real proposal; approving through Dispatch; the Claude Desktop scheduled task calling `submit_weekly_discoveries`; whether loved tracks in the weekly playlist show up as `favorited` in the Music app snapshot.
