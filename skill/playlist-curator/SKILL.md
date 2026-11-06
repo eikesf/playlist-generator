@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, and that is the only way playlists are made: never Spotify, Tune My Music, text files or any other importer. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `finish_pending_playlists`.
+Tools (server `apple-music`): `auth_status`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `profile_curve`, `create_profile`, `delete_profile`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `finish_pending_playlists`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -45,7 +45,7 @@ Call `plan_playlist` with the purpose (free text works: "set de techno", "treino
   - `known_artist_new_track`: new songs by artists he listens to (deep cuts),
   - `new_artist`: artists he does not know yet.
 
-If the purpose is unclear, call `list_playlist_profiles` and pick the closest one. Say which one you picked and why in one line. Fill each act with tracks that match its intent, and spread the buckets across the acts. Known songs work well at the opening and in the peak, and discoveries fit the build and the groove.
+Profiles come in families with sub-profiles (focus → study, binaural, epic_soundtrack; workout → hiit, strength; dj_set → melodic_techno, peak_time_techno). Pick the most specific one: call `list_playlist_profiles` when unsure, and `profile_curve` to show him how the energy will evolve. If nothing fits, agree on a new profile with him and save it with `create_profile` (it stays for future sessions; `delete_profile` removes it). Say which profile you picked and why in one line. Fill each act with tracks that match its intent, and spread the buckets across the acts. Known songs work well at the opening and in the peak, and discoveries fit the build and the groove.
 
 ## 3. Size and balance
 

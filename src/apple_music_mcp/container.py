@@ -16,8 +16,10 @@ from .apple.transport import AmpTransport
 from .bpm.providers import BpmProvider, DeezerProvider, GetSongBpmProvider
 from .bpm.service import BpmService
 from .config import STATE_FILE, Credentials, CredentialStore, config_dir
+from .curation.registry import ProfileRegistry
 from .db import Database
 from .db.cache import ResponseCache
+from .db.repositories import ProfileRepository
 from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
@@ -60,6 +62,7 @@ class AppContainer:
         # One limiter per service, shared by every caller (guide §4.1: ~5 req/s, 3 in flight).
         self.apple_limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)
         self.cache = ResponseCache(self.db)
+        self.profiles = ProfileRegistry(ProfileRepository(self.db))
         self.transport = AmpTransport(
             self._http,
             self.credentials,

@@ -285,3 +285,67 @@ class JobRunRepository:
                 select(job_run).where(job_run.c.job == job).order_by(job_run.c.id.desc()).limit(1)
             ).first()
         return dict(row._mapping) if row else None
+
+
+class ProfileRepository:
+    """Rows of the ``profile`` table. Built-in profiles are mirrored so managed playlists can point at
+    them; profiles Claude creates in a conversation (``origin = ai_created``) exist only here."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def sync(self, profiles: Sequence[dict[str, Any]]) -> None:
+        """Upsert profiles (``slug``, ``family``, ``name``, ``origin``, ``description``, ``energy_curve``,
+        ``bpm_range``, ``rules``). Families first, so sub-profiles can point at them."""
+        from .schema import profile
+
+        ordered = sorted(profiles, key=lambda p: p["family"] != p["slug"])
+        with self._db.engine.begin() as conn:
+            for p in ordered:
+                parent_id = None
+                if p["family"] != p["slug"]:
+                    parent_id = conn.execute(
+                        select(profile.c.id).where(profile.c.slug == p["family"])
+                    ).scalar()
+                values = {
+                    k: p[k] for k in ("name", "origin", "description", "energy_curve", "bpm_range", "rules")
+                }
+                values["parent_id"] = parent_id
+                existing = conn.execute(select(profile.c.id).where(profile.c.slug == p["slug"])).scalar()
+                if existing is None:
+                    conn.execute(insert(profile).values(slug=p["slug"], created_at=utcnow(), **values))
+                else:
+                    conn.execute(update(profile).where(profile.c.id == existing).values(**values))
+
+    def custom(self) -> list[dict[str, Any]]:
+        from .schema import profile
+
+        parent = profile.alias("parent")
+        query = (
+            select(profile, parent.c.slug.label("family_slug"))
+            .select_from(profile.outerjoin(parent, profile.c.parent_id == parent.c.id))
+            .where(profile.c.origin != "builtin")
+            .order_by(profile.c.slug)
+        )
+        with self._db.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
+
+    def delete(self, slug: str) -> bool:
+        """Delete a non-builtin profile that no managed playlist uses. Returns False otherwise."""
+        from sqlalchemy import delete as sql_delete
+
+        from .schema import managed_playlist, profile
+
+        with self._db.engine.begin() as conn:
+            row = conn.execute(select(profile.c.id, profile.c.origin).where(profile.c.slug == slug)).first()
+            if row is None or row.origin == "builtin":
+                return False
+            used = conn.execute(
+                select(func.count())
+                .select_from(managed_playlist)
+                .where(managed_playlist.c.profile_id == row.id)
+            ).scalar_one()
+            if used:
+                return False
+            conn.execute(sql_delete(profile).where(profile.c.id == row.id))
+            return True

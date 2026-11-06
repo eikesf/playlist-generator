@@ -3,11 +3,16 @@
 Energy is on a 1-10 scale. Each act covers a share of the total duration and interpolates its
 energy linearly from ``energy_start`` to ``energy_end``. Profiles are data: add one here and every
 tool (plan, order, skill guidance) picks it up (open/closed principle).
+
+Profiles come in families (owner's decision): a family profile (``dj_set``, ``workout``, ``focus``...)
+and sub-profiles that refine it (``focus.binaural``, ``workout.hiit``...). A sub-profile inherits
+everything from its family and overrides what differs. Claude can also create profiles in a
+conversation; those live in the database (``curation/registry.py``).
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from ..text import normalize
@@ -22,7 +27,9 @@ class Act:
     intent: str
 
     def energy_at(self, fraction: float) -> float:
-        fraction = min(1.0, max(0.0, fraction))
+        if fraction >= 1 - 1e-9:  # absorb float error from summing act shares
+            return self.energy_end
+        fraction = max(0.0, fraction)
         return self.energy_start + (self.energy_end - self.energy_start) * fraction
 
 
@@ -41,6 +48,16 @@ class Profile:
     max_track_minutes: float | None = None
     guidance: tuple[str, ...] = ()
     aliases: tuple[str, ...] = field(default_factory=tuple)
+    family: str = ""  # family key; empty means "this profile is a family"
+    origin: str = "builtin"  # builtin | ai_created | owner
+
+    @property
+    def family_key(self) -> str:
+        return self.family or self.key
+
+    @property
+    def is_family(self) -> bool:
+        return not self.family
 
     def __post_init__(self) -> None:
         total = sum(a.share for a in self.acts)
@@ -69,10 +86,29 @@ class Profile:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("aliases")
+        data["family"] = self.family_key
         return data
 
+    def curve(self, points: int = 21) -> list[dict[str, float]]:
+        """Sampled energy and target BPM from start (0) to end (1), for showing and validating a profile."""
+        points = max(2, points)
+        out = []
+        for i in range(points):
+            t = i / (points - 1)
+            energy = self.energy_at(t)
+            out.append(
+                {"t": round(t, 3), "energy": round(energy, 2), "bpm": round(self.bpm_for_energy(energy))}
+            )
+        return out
 
-PROFILES: dict[str, Profile] = {
+
+def variant(base: Profile, key: str, label: str, description: str, **changes: Any) -> Profile:
+    """A sub-profile of ``base``: same rules unless overridden. Aliases are never inherited."""
+    changes.setdefault("aliases", ())
+    return replace(base, key=key, label=label, description=description, family=base.family_key, **changes)
+
+
+_FAMILIES: dict[str, Profile] = {
     p.key: p
     for p in (
         Profile(
@@ -150,8 +186,8 @@ PROFILES: dict[str, Profile] = {
             aliases=("corrida", "running", "run", "cardio", "esteira", "treadmill", "bike", "spinning"),
         ),
         Profile(
-            key="study",
-            label="Study / deep focus",
+            key="focus",
+            label="Focus / deep work",
             description="Mostly instrumental, constant low-medium energy, no abrupt peaks.",
             acts=(
                 Act("Settle in", 0.15, 3, 3.5, "calm, welcoming, low distraction"),
@@ -164,16 +200,18 @@ PROFILES: dict[str, Profile] = {
             max_bpm_step=10,
             max_energy_step=1.0,
             min_artist_gap=2,
-            guidance=("Soundtracks, ambient, neoclassical, minimal, lo-fi; avoid drops and loud peaks.",),
+            guidance=(
+                "Soundtracks, ambient, neoclassical, minimal, lo-fi; avoid drops and loud peaks.",
+                "Nothing heavy (owner's rule for focus): no metal, no hard techno, no aggressive vocals.",
+            ),
             aliases=(
-                "estudo",
-                "estudar",
-                "study",
-                "focus",
                 "foco",
+                "focus",
                 "concentracao",
+                "concentrar",
                 "trabalho",
                 "work",
+                "deep work",
                 "coding",
             ),
         ),
@@ -272,6 +310,131 @@ PROFILES: dict[str, Profile] = {
     )
 }
 
+
+def _variants(f: dict[str, Profile]) -> tuple[Profile, ...]:
+    return (
+        variant(
+            f["focus"],
+            "study",
+            "Study",
+            "Reading and studying: calm instrumental, steady, low energy.",
+            acts=(
+                Act("Settle in", 0.15, 3, 3.5, "calm, welcoming, low distraction"),
+                Act("Deep focus", 0.70, 3.5, 3.5, "steady, repetitive, instrumental"),
+                Act("Wind-down", 0.15, 3, 2, "softer, spacious"),
+            ),
+            bpm_range=(60, 110),
+            guidance=("Lo-fi, neoclassical, ambient piano, minimal; no lyrics in the deep focus act.",),
+            aliases=("estudo", "estudar", "study", "studying", "leitura", "ler", "reading"),
+        ),
+        variant(
+            f["focus"],
+            "binaural",
+            "Focus · binaural / brainwave",
+            "Binaural beats and drones for concentration: almost flat, very low energy.",
+            acts=(
+                Act("Tune in", 0.10, 2, 2, "drones, slow pulses"),
+                Act("Hold", 0.80, 2, 2, "constant binaural tones, no melody changes"),
+                Act("Release", 0.10, 2, 1.5, "fade"),
+            ),
+            bpm_range=(40, 80),
+            avg_track_minutes=10.0,
+            vocals="none",
+            max_energy_step=0.5,
+            min_artist_gap=1,
+            guidance=("Binaural beats need headphones. Prefer long tracks (10+ min) from the same series.",),
+            aliases=("binaural", "binaurais", "ondas binaurais", "brainwave", "ondas alfa", "alpha waves"),
+        ),
+        variant(
+            f["focus"],
+            "epic_soundtrack",
+            "Focus · epic soundtrack",
+            "Film and game scores: a slow build to an inspiring middle, no lyrics.",
+            acts=(
+                Act("Overture", 0.20, 3, 4.5, "atmospheric scores"),
+                Act("Momentum", 0.50, 4.5, 6.5, "driving orchestral themes, no vocals"),
+                Act("Resolution", 0.30, 6, 4, "emotional, spacious"),
+            ),
+            bpm_range=(70, 130),
+            avg_track_minutes=4.0,
+            vocals="instrumental (choirs without words are fine)",
+            max_energy_step=1.5,
+            guidance=(
+                "Hans Zimmer-style scores, game soundtracks, epic orchestral; no battle cues at full volume.",
+            ),
+            aliases=(
+                "trilha",
+                "trilha sonora",
+                "trilhas sonoras",
+                "soundtrack",
+                "epic",
+                "epica",
+                "epico",
+                "film score",
+            ),
+        ),
+        variant(
+            f["workout"],
+            "hiit",
+            "Workout · HIIT intervals",
+            "Alternating peaks and short recoveries.",
+            acts=(
+                Act("Warm-up", 0.10, 5, 7, "getting the body moving"),
+                Act("Interval 1", 0.20, 9, 9.5, "maximum effort"),
+                Act("Recover 1", 0.10, 6, 6, "breathe"),
+                Act("Interval 2", 0.20, 9, 10, "maximum effort"),
+                Act("Recover 2", 0.10, 6, 6, "breathe"),
+                Act("Interval 3", 0.20, 9.5, 10, "the hardest round"),
+                Act("Cooldown", 0.10, 6, 4, "release"),
+            ),
+            max_energy_step=3.5,
+            aliases=("hiit", "intervalado", "intervalos", "tabata", "circuito", "circuit"),
+        ),
+        variant(
+            f["workout"],
+            "strength",
+            "Workout · strength / heavy lifting",
+            "Heavy, steady drive with room between sets.",
+            acts=(
+                Act("Warm-up", 0.10, 5, 7, "rhythmic"),
+                Act("Working sets", 0.80, 7.5, 8.5, "heavy riffs and big drums, steady"),
+                Act("Cooldown", 0.10, 6, 4, "release"),
+            ),
+            bpm_range=(100, 140),
+            guidance=("Heavier genres fit (rock, metal, phonk, trap); groove matters more than speed.",),
+            aliases=("forca", "musculacao pesada", "strength", "powerlifting", "heavy", "pesado", "maromba"),
+        ),
+        variant(
+            f["dj_set"],
+            "melodic_techno",
+            "DJ set · melodic techno",
+            "Emotional melodic techno and progressive: long builds, euphoric peak.",
+            bpm_range=(118, 128),
+            guidance=(
+                "Prefer original/extended mixes; melodic leads and breakdowns; end on an emotional track.",
+            ),
+            aliases=("melodic techno", "techno melodico", "progressive", "afterlife", "melodic house"),
+        ),
+        variant(
+            f["dj_set"],
+            "peak_time_techno",
+            "DJ set · peak-time / hard techno",
+            "Driving, hard and fast: short opening, long peak.",
+            acts=(
+                Act("Opening", 0.10, 5, 6, "driving, hypnotic"),
+                Act("Build", 0.25, 6.5, 8.5, "relentless, industrial"),
+                Act("Peak", 0.50, 9, 10, "hardest and fastest"),
+                Act("Exit", 0.15, 8.5, 6.5, "still driving, less intensity"),
+            ),
+            bpm_range=(128, 150),
+            guidance=("Hard techno, industrial, schranz-leaning peaks; keep BPM steps small.",),
+            aliases=("hard techno", "peak time", "industrial", "techno pesado", "rave pesada"),
+        ),
+    )
+
+
+PROFILES: dict[str, Profile] = {**_FAMILIES, **{p.key: p for p in _variants(_FAMILIES)}}
+
 DEFAULT_PROFILE = "exploration"
 
 
@@ -279,13 +442,25 @@ def get_profile(purpose: str | None) -> Profile:
     """Resolve a profile from a key or free text in English or Portuguese ("treino", "set de techno")."""
     if not purpose:
         return PROFILES[DEFAULT_PROFILE]
+    return match_profile(purpose, PROFILES) or PROFILES[DEFAULT_PROFILE]
+
+
+def match_profile(purpose: str, profiles: dict[str, Profile]) -> Profile | None:
+    """Exact key (``binaural``, ``focus.binaural``) first, then the longest alias found in the text."""
     text = normalize(purpose).replace(" ", "_")
-    if text in PROFILES:
-        return PROFILES[text]
+    key = text.split(".")[-1] if "." in purpose else text
+    if key in profiles:
+        return profiles[key]
     words = f" {normalize(purpose)} "
-    best: tuple[int, Profile] | None = None
-    for profile in PROFILES.values():
-        for alias in profile.aliases:
-            if f" {normalize(alias)} " in words and (best is None or len(alias) > best[0]):
-                best = (len(alias), profile)
-    return best[1] if best else PROFILES[DEFAULT_PROFILE]
+    hits: dict[str, int] = {}  # profile key -> longest matching alias
+    for profile in profiles.values():
+        for alias in (*profile.aliases, profile.label):
+            if f" {normalize(alias)} " in words:
+                hits[profile.key] = max(hits.get(profile.key, 0), len(alias))
+    if not hits:
+        return None
+    # A sub-profile beats its own family ("treino hiit" means HIIT, not just workout); otherwise the
+    # longest matching alias wins.
+    refined = {k: n for k, n in hits.items() if not profiles[k].is_family and profiles[k].family_key in hits}
+    pool = refined or hits
+    return profiles[max(pool, key=lambda k: pool[k])]

@@ -9,7 +9,6 @@ from typing import Any
 from .apple.errors import AuthError
 from .bpm.service import align_octave
 from .container import AppContainer
-from .curation.profiles import get_profile
 from .curation.sequencer import TrackFeatures, insert_tracks
 
 
@@ -73,7 +72,7 @@ async def insert_into_playlist(
         base.append(f)
     new = [TrackFeatures.from_dict(t) for t in new_tracks]
     await enrich_features(app, base + new)
-    plan = insert_tracks(get_profile(purpose), base, new)
+    plan = insert_tracks(app.profiles.get(purpose), base, new)
     unestimated = sum(1 for f in base if f.energy is None)
     if unestimated:
         plan["warnings"].append(
