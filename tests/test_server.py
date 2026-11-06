@@ -222,3 +222,15 @@ async def test_editing_tools_via_mcp(server_factory: Any, fake_apple: FakeAppleM
             await c.call_tool("rename_playlist", {"playlist_id": pid, "name": "Set v2"})
         ).structured_content
         assert renamed["playlist"]["name"] == "Set v2"
+
+
+async def test_skill_is_served_as_prompt_and_resource(server_factory: Any) -> None:
+    async with Client(server_factory()) as c:
+        prompts = {p.name for p in (await c.list_prompts()).prompts}
+        assert "playlist-curator" in prompts
+        prompt = await c.get_prompt("playlist-curator", {})
+        text = getattr(prompt.messages[0].content, "text", "")
+        assert "edit or create" in text.lower() or "editar uma playlist" in text.lower()
+        resource = await c.read_resource("skill://playlist-curator")
+        body = getattr(resource.contents[0], "text", "")
+        assert "preview_playlist" in body
