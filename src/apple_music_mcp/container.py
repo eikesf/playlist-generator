@@ -96,6 +96,11 @@ class AppContainer:
     def set_persist(self, persist: bool) -> None:
         self.tokens.store = self.store if persist else None
 
+    @property
+    def http(self) -> httpx.AsyncClient:
+        """The shared HTTP client (for monitoring and other non-Apple calls)."""
+        return self._http
+
     async def aclose(self) -> None:
         if self._owns_http:
             await self._http.aclose()
