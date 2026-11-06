@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import getpass
+import sys
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from ..apple.errors import AppleMusicError
 from ..config import CredentialStore
+from ..token_expiry import parse_expiry, record_user_token_expiry
 from . import ContainerBuilder, Output, default_container
 
 MIN_TOKEN_LENGTH = 20
@@ -22,7 +25,11 @@ How to get your media-user-token (one time, about 2 minutes):
   Chrome: open https://music.apple.com and sign in, press Cmd+Option+I,
           Application tab > Cookies > https://music.apple.com > media-user-token
 
-The token stays on this Mac (file permissions 600) and is only sent to Apple.
+The token stays on this Mac (macOS Keychain) and is only sent to Apple.
+"""
+
+EXPIRY_HELP = """Optional: the cookie's expiry date, so you get a reminder before it stops working.
+In the same Cookies list, the "Expires" column of media-user-token shows it (for example 2027-05-04).
 """
 
 
@@ -34,10 +41,14 @@ async def run_login(
     build: ContainerBuilder = default_container,
     store: CredentialStore | None = None,
     prompt: Callable[[str], str] = getpass.getpass,
+    ask: Callable[[str], str] = input,
+    expires: str | None = None,
     out: Output = print,
 ) -> int:
     store = store or CredentialStore()
     creds = store.load()
+    interactive = token is None and sys.stdin.isatty()
+    expires_at: datetime | None = None
     if storefront:
         creds.storefront = storefront.lower()
     if use_browser:
@@ -52,6 +63,8 @@ async def run_login(
             return 1
         creds.media_user_token = captured.media_user_token
         creds.developer_token = captured.developer_token or creds.developer_token
+        if captured.media_user_token_expires:
+            expires_at = datetime.fromtimestamp(captured.media_user_token_expires, UTC)
     else:
         if not token:
             out(TOKEN_HELP)
@@ -61,6 +74,10 @@ async def run_login(
             out("That does not look like a media-user-token (too short).")
             return 1
         creds.media_user_token = token
+        if expires is None and interactive:
+            out(EXPIRY_HELP)
+            expires = ask("Cookie expiry date (YYYY-MM-DD, Enter to estimate 180 days): ")
+        expires_at = parse_expiry(expires or "")
 
     app = build(creds)
     app.set_persist(False)  # save only after Apple accepted the token
@@ -74,8 +91,11 @@ async def run_login(
         await app.aclose()
     if not storefront and account_storefront:
         creds.storefront = account_storefront
-    path = store.save(creds)
-    out(f"OK. Signed in (storefront '{creds.storefront}'). Credentials saved to {path}")
+    store.save(creds)
+    expiry = record_user_token_expiry(app.state, expires_at)
+    when = expiry["expires_at"][:10] + (" (estimated)" if expiry["estimated"] else "")
+    out(f"OK. Signed in (storefront '{creds.storefront}'). Credentials saved to {store.location}")
+    out(f"The session token expires around {when}. You will get a reminder before that.")
     from ..operations import PENDING_KEY
 
     pending = app.state.get(PENDING_KEY, []) or []

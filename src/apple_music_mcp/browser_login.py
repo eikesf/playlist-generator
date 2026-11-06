@@ -20,6 +20,16 @@ LOGIN_URL = "https://music.apple.com/{storefront}/browse"
 class CapturedTokens:
     media_user_token: str | None = None
     developer_token: str | None = None
+    media_user_token_expires: float | None = None  # unix seconds, from the cookie
+
+
+def expiry_from_cookies(cookies: list[dict[str, Any]]) -> float | None:
+    for cookie in cookies:
+        if cookie.get("name") == "media-user-token":
+            expires = cookie.get("expires")
+            if isinstance(expires, (int, float)) and expires > 0:
+                return float(expires)
+    return None
 
 
 def token_from_cookies(cookies: list[dict[str, Any]]) -> str | None:
@@ -61,8 +71,10 @@ async def capture_tokens(profile_dir: Path, storefront: str = "br", timeout: flo
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             for origin in ("https://music.apple.com", "https://amp-api.music.apple.com"):
-                captured.media_user_token = captured.media_user_token or token_from_cookies(
-                    await context.cookies(origin)
+                cookies = await context.cookies(origin)
+                captured.media_user_token = captured.media_user_token or token_from_cookies(cookies)
+                captured.media_user_token_expires = captured.media_user_token_expires or expiry_from_cookies(
+                    cookies
                 )
             if captured.media_user_token and captured.developer_token:
                 break

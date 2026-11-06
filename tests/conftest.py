@@ -52,6 +52,11 @@ def isolated_config(tmp_path, monkeypatch, migrated_db_template):
     cfg.mkdir()
     shutil.copy2(migrated_db_template, cfg / DB_FILE)
     monkeypatch.setenv(config.ENV_CONFIG_DIR, str(cfg))
+    # Never touch the developer's real Keychain from tests; keychain behaviour is tested with
+    # an in-memory backend (tests/test_secrets_store.py).
+    from apple_music_mcp.secrets import ENV_SECRET_BACKEND
+
+    monkeypatch.setenv(ENV_SECRET_BACKEND, "file")
     for var in (config.ENV_USER_TOKEN, config.ENV_DEVELOPER_TOKEN, config.ENV_STOREFRONT):
         monkeypatch.delenv(var, raising=False)
     return cfg

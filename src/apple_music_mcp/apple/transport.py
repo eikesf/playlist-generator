@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from ..config import Credentials
-from .errors import DEV_TOKEN_HELP, USER_TOKEN_HELP, AppleMusicError, AuthError
+from .errors import DEV_TOKEN_HELP, USER_TOKEN_HELP, AppleMusicError, AuthError, WebApiDisabled
 from .http import BROWSER_UA, RetryPolicy, Sleep, safe_json, send_with_retry
 from .tokens import DeveloperTokenProvider
 
@@ -27,7 +27,9 @@ class AmpTransport:
         tokens: DeveloperTokenProvider,
         retry: RetryPolicy | None = None,
         sleep: Sleep = asyncio.sleep,
+        enabled: bool = True,
     ):
+        self.enabled = enabled
         self._http = http
         self._credentials = credentials
         self._tokens = tokens
@@ -57,6 +59,8 @@ class AmpTransport:
         json: Any = None,
         user: bool = False,
     ) -> Any:
+        if not self.enabled:
+            raise WebApiDisabled()
         refreshed = False
         while True:
             dev_token = await self._tokens.get()

@@ -16,6 +16,8 @@ dependencies = [
   "rapidfuzz>=3.6,<4",
   "sqlalchemy>=2.0.30,<3",
   "alembic>=1.13,<2",
+  "keyring>=25,<26",
+  "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
