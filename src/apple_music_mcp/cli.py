@@ -7,6 +7,8 @@ Subcommands:
   doctor           live end-to-end checks against Apple Music (--write also creates a test playlist)
   install-claude   register the server in Claude Desktop (and print the Claude Code command)
   set-bpm-key      store a free GetSongBPM API key (better BPM data; optional)
+  run              run one scheduled job now: doctor, snapshot, recent_played, backup, heartbeat
+  schedule         install / uninstall the launchd jobs that run them on this Mac
   finish-pending   create playlists saved while the login was expired
   refresh          read-only weekly refresh plan: fills "<name> · Descobertas", lists candidates
   schedule-refresh run `refresh` weekly on this Mac (launchd); nothing is ever removed automatically
@@ -48,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     sched.add_argument("--weekday", type=int, default=1, help="0=Sunday ... 6=Saturday (default Monday)")
     sched.add_argument("--hour", type=int, default=10)
     sched.add_argument("--minute", type=int, default=7)
+    run = sub.add_parser("run", help="run one scheduled job now (what launchd calls)")
+    run.add_argument("job", choices=["doctor", "backup", "snapshot", "recent_played", "heartbeat"])
+    schedule = sub.add_parser("schedule", help="install/remove the launchd jobs (doctor, snapshot, ...)")
+    schedule.add_argument("action", choices=["install", "uninstall"])
     sub.add_parser("finish-pending", help="create playlists that were saved while the login was expired")
     bpm = sub.add_parser("set-bpm-key", help="store a GetSongBPM API key (getsongbpm.com/api)")
     bpm.add_argument("--key", help="the key (otherwise prompted, hidden); empty string removes it")
@@ -90,6 +96,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Activate it with:  launchctl load -w {path}")
         print(f"Stop it with:      launchctl unload -w {path} && rm {path}")
         return 0
+    if args.command == "run":
+        from .commands.jobs import run_job_command
+
+        return asyncio.run(run_job_command(args.job))
+    if args.command == "schedule":
+        from .commands.jobs import install_schedule, uninstall_schedule
+
+        return install_schedule() if args.action == "install" else uninstall_schedule()
     if args.command == "finish-pending":
         from .commands.pending import run_finish_pending
 

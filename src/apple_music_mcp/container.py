@@ -45,9 +45,8 @@ class AppContainer:
     ):
         self.settings = settings or AppSettings.from_env()
         self.store = store or CredentialStore()
-        self.db = db
+        self.db: Database = db or Database.open()
         if state is None:
-            self.db = self.db or Database.open()
             kv = SettingsStore(self.db)
             import_state_file(kv, config_dir() / STATE_FILE)
             state = kv
@@ -60,7 +59,7 @@ class AppContainer:
         )
         # One limiter per service, shared by every caller (guide §4.1: ~5 req/s, 3 in flight).
         self.apple_limiter = RateLimiter(rate=5, concurrency=3, sleep=sleep)
-        self.cache = ResponseCache(self.db) if self.db is not None else None
+        self.cache = ResponseCache(self.db)
         self.transport = AmpTransport(
             self._http,
             self.credentials,
@@ -100,8 +99,7 @@ class AppContainer:
     async def aclose(self) -> None:
         if self._owns_http:
             await self._http.aclose()
-        if self.db is not None:
-            self.db.dispose()
+        self.db.dispose()
 
     async def __aenter__(self) -> AppContainer:
         return self
