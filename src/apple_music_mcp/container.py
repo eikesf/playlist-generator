@@ -19,7 +19,7 @@ from .config import STATE_FILE, Credentials, CredentialStore, config_dir
 from .curation.registry import ProfileRegistry
 from .db import Database
 from .db.cache import ResponseCache
-from .db.repositories import ProfileRepository
+from .db.repositories import ListeningRepository, ProfileRepository
 from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
@@ -78,7 +78,9 @@ class AppContainer:
         self.library = LibraryService(self.transport)
         self.editor = PlaylistEditor(self.library, self.state)
         self.taste = TasteService(self.transport, self.state)
-        self.discovery = DiscoveryService(self.catalog, self.taste)
+        self.discovery = DiscoveryService(
+            self.catalog, self.taste, ListeningRepository(self.db), min_plays=self.settings.known_min_plays
+        )
         providers: list[BpmProvider] = []
         if self.credentials.getsongbpm_api_key:
             providers.append(

@@ -29,6 +29,22 @@ class TrackInput(BaseModel):
     act: str | None = Field(default=None, description="Optional: force into an act by name, e.g. 'Peak'")
 
 
+def mix_targets(
+    known_artists_pct: float | None,
+    known_within_pct: float | None,
+    known_tracks_pct: float | None = None,
+) -> tuple[MixTargets, bool]:
+    """Targets from the tool arguments, and whether the default mix (50 % / 30 %) was used."""
+    if known_artists_pct is None and known_within_pct is None and known_tracks_pct is None:
+        return MixTargets.default(), True
+    default = MixTargets.default()
+    ka = known_artists_pct if known_artists_pct is not None else default.known_artists_pct
+    if known_within_pct is not None:
+        return MixTargets.from_levels(ka, known_within_pct), False
+    kt = known_tracks_pct if known_tracks_pct is not None else default.known_tracks_pct
+    return MixTargets(kt, ka if known_artists_pct is not None else max(ka, kt)), False
+
+
 class ActInput(BaseModel):
     name: str
     share: float = Field(gt=0, le=1, description="Fraction of the playlist; all acts add up to 1")
@@ -148,25 +164,29 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         return {"deleted": provider.get().profiles.delete(key), "key": key}
 
     @mcp.tool()
+    @tool_errors
     async def plan_playlist(
         purpose: str,
         duration_minutes: float | None = None,
         track_count: int | None = None,
-        known_tracks_pct: float | None = None,
         known_artists_pct: float | None = None,
+        known_tracks_within_known_artists_pct: float | None = None,
+        known_tracks_pct: float | None = None,
     ) -> dict[str, Any]:
         """Build the plan for a playlist from its purpose (key or free text like "treino", "set de techno",
-        "estudo") and its size (minutes or tracks). Returns acts with minutes, number of tracks, target
-        energy and BPM per act, vocals and transition rules.
+        "foco binaural") and its size (minutes or tracks; if the user skips it, use 300 minutes). Returns
+        acts with minutes, number of tracks, target energy and BPM per act, vocals and transition rules.
 
-        Pass the user's familiarity targets to get `familiarity_mix`: how many tracks should be
-        songs they already know (`known_tracks_pct`), how many by artists they know
-        (`known_artists_pct`, includes the known songs) and how many by new artists."""
+        `familiarity_mix` gives how many tracks go in each bucket, from the user's two-level mix:
+        level 1 `known_artists_pct` (share of the playlist by artists they know) and level 2
+        `known_tracks_within_known_artists_pct` (share of songs they already know *among* those).
+        Without targets the default is 50 % / 30 %. (`known_tracks_pct`, a share of the whole
+        playlist, is still accepted instead of level 2.)"""
         plan = make_plan(provider.get().profiles.get(purpose), duration_minutes, track_count).to_dict()
-        if known_tracks_pct is not None or known_artists_pct is not None:
-            kt = known_tracks_pct if known_tracks_pct is not None else 0
-            ka = known_artists_pct if known_artists_pct is not None else kt
-            plan["familiarity_mix"] = mix_counts(plan["total_tracks"], MixTargets(kt, ka))
+        targets, is_default = mix_targets(
+            known_artists_pct, known_tracks_within_known_artists_pct, known_tracks_pct
+        )
+        plan["familiarity_mix"] = {**mix_counts(plan["total_tracks"], targets), "default_mix": is_default}
         return plan
 
     @mcp.tool(name="order_tracks")
