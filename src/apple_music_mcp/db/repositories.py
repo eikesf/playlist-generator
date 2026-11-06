@@ -349,3 +349,44 @@ class ProfileRepository:
                 return False
             conn.execute(sql_delete(profile).where(profile.c.id == row.id))
             return True
+
+
+class ListeningRepository:
+    """What the Music app says about each track: the latest play/skip counters per track."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def latest_by_match_key(self) -> dict[str, Counters]:
+        newest = (
+            select(play_snapshot.c.track_id, func.max(play_snapshot.c.snapshot_date).label("d"))
+            .group_by(play_snapshot.c.track_id)
+            .subquery()
+        )
+        query = (
+            select(track.c.match_key, play_snapshot)
+            .join(
+                newest,
+                and_(
+                    play_snapshot.c.track_id == newest.c.track_id, play_snapshot.c.snapshot_date == newest.c.d
+                ),
+            )
+            .join(track, track.c.id == play_snapshot.c.track_id)
+        )
+        out: dict[str, Counters] = {}
+        with self._db.engine.connect() as conn:
+            for r in conn.execute(query):
+                current = Counters(r.played_count, r.skipped_count, bool(r.favorited), bool(r.disliked))
+                previous = out.get(r.match_key)
+                # Duplicates of one song (e.g. album and single) add up.
+                out[r.match_key] = (
+                    current
+                    if previous is None
+                    else Counters(
+                        previous.played + current.played,
+                        previous.skipped + current.skipped,
+                        previous.favorited or current.favorited,
+                        previous.disliked or current.disliked,
+                    )
+                )
+        return out

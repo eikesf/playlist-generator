@@ -75,7 +75,10 @@ async def test_plan_playlist_includes_familiarity_mix(fake_apple: FakeAppleMusic
         "known_artist_new_track": 8,
         "new_artist": 5,
     }
-    assert "familiarity_mix" not in plain
+    # Without targets the guide's default applies: 50 % known artists, 30 % known songs within them.
+    assert plain is not None and plain["familiarity_mix"]["default_mix"] is True
+    assert plain["familiarity_mix"]["known_artists_pct"] == 50
+    assert plain["familiarity_mix"]["known_tracks_pct"] == 15
 
 
 async def test_resolve_with_targets_returns_mix_check(fake_apple: FakeAppleMusic, tmp_path: Path) -> None:
