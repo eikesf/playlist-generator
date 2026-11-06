@@ -48,11 +48,15 @@ def last_slot(now: datetime, weekday: str, time: str) -> datetime:
 
 
 def due_playlists(
-    managed: list[dict[str, Any]], settings: AppSettings, now: datetime, last_created: dict[int, datetime]
+    managed: list[dict[str, Any]],
+    settings: AppSettings,
+    now: datetime,
+    last_created: dict[int, datetime],
+    flag: str = "refresh_enabled",
 ) -> list[dict[str, Any]]:
     due = []
     for m in managed:
-        if not m.get("refresh_enabled") or m.get("status") != "active":
+        if not m.get(flag) or m.get("status") != "active":
             continue
         slot = last_slot(now, *playlist_slot(m, settings))
         last = last_created.get(m["id"])
@@ -61,11 +65,11 @@ def due_playlists(
     return due
 
 
-def _last_created(app: AppContainer) -> dict[int, datetime]:
+def _last_created(app: AppContainer, kind: str = "refresh") -> dict[int, datetime]:
     with app.db.engine.connect() as conn:
         rows = conn.execute(
             select(proposal.c.managed_playlist_id, func.max(proposal.c.created_at))
-            .where(proposal.c.kind == "refresh", proposal.c.managed_playlist_id.is_not(None))
+            .where(proposal.c.kind == kind, proposal.c.managed_playlist_id.is_not(None))
             .group_by(proposal.c.managed_playlist_id)
         ).all()
     out = {}
@@ -121,12 +125,49 @@ async def refresh_plan_job(app: AppContainer, run_id: int, outcome: JobOutcome, 
         if await notifier.send(title, body, tags=("musical_note",)):
             repo.mark_notified(plan["proposal_id"])
         made.append(row)
+    promotions = await _promotions(app, run_id, now, managed, notifier, failed)
     outcome.detail = {
         "due": [m["name"] for m in due],
         "proposals": made,
+        "promotions": promotions,
         "expired": expired,
         "auto_apply": app.settings.refresh_auto_apply,
     }
     if failed:
         outcome.status = "warn"
         outcome.error = "; ".join(failed)[:500]
+
+
+async def _promotions(
+    app: AppContainer,
+    run_id: int,
+    now: datetime,
+    managed: list[dict[str, Any]],
+    notifier: Notifier,
+    failed: list[str],
+) -> list[dict[str, Any]]:
+    """Weekly promotion proposals for playlists with Weekly Discoveries on (guide §7.11)."""
+    from ..promotion import PromotionService
+
+    repo = ProposalRepository(app.db)
+    out = []
+    due = due_playlists(
+        managed, app.settings, now, _last_created(app, "promotion"), flag="discoveries_enabled"
+    )
+    for m in due:
+        try:
+            built = await PromotionService(app).build(m, job_run_id=run_id)
+        except AppleMusicError as exc:
+            failed.append(f"{m['name']} promotion: {type(exc).__name__}")
+            continue
+        if built.get("already_open") or built.get("proposal_id") is None:
+            continue
+        count = len(built["items"])
+        title = f"Promoção pronta para {m['name']}: {count} faixas das Weekly Discoveries"
+        body = "Abra o Claude (Mac ou Dispatch) e peça para ver as propostas pendentes. Nada mudou ainda."
+        if await notifier.send(title, body, tags=("star",)):
+            repo.mark_notified(built["proposal_id"])
+        out.append(
+            {"proposal_id": built["proposal_id"], "playlist": m["name"], "add": count, "cap": built["cap"]}
+        )
+    return out
