@@ -173,6 +173,11 @@ class ProposedTrack:
     position: int | None = None
     section: str | None = None
     bucket: str | None = None
+    replaces: int | None = None  # index (in the same ``create`` call) of the item this one replaces
+    decision: str = "pending"
+
+
+OPEN_STATUSES = ("pending_approval", "approved")
 
 
 class ProposalRepository:
@@ -190,6 +195,7 @@ class ProposalRepository:
         job_run_id: int | None = None,
         params: dict[str, Any] | None = None,
         status: str = "pending_approval",
+        created_at: datetime | None = None,
     ) -> int:
         with self._db.engine.begin() as conn:
             pid = int(
@@ -202,21 +208,30 @@ class ProposalRepository:
                         managed_playlist_id=managed_playlist_id,
                         job_run_id=job_run_id,
                         params=params or {},
-                        created_at=utcnow(),
+                        created_at=created_at or utcnow(),
                     )
                     .returning(proposal.c.id)
                 ).scalar_one()
             )
+            item_ids: list[int] = []
             for i, item in enumerate(items):
-                conn.execute(
-                    insert(proposal_item).values(
-                        proposal_id=pid,
-                        track_id=self._tracks.upsert(item.info, conn),
-                        action=item.action,
-                        position=item.position if item.position is not None else i,
-                        section=item.section,
-                        bucket=item.bucket,
-                        decision="pending",
+                replaces = item_ids[item.replaces] if item.replaces is not None else None
+                item_ids.append(
+                    int(
+                        conn.execute(
+                            insert(proposal_item)
+                            .values(
+                                proposal_id=pid,
+                                track_id=self._tracks.upsert(item.info, conn),
+                                action=item.action,
+                                position=item.position if item.position is not None else i,
+                                section=item.section,
+                                bucket=item.bucket,
+                                decision=item.decision,
+                                replaces_item_id=replaces,
+                            )
+                            .returning(proposal_item.c.id)
+                        ).scalar_one()
                     )
                 )
             return pid
@@ -235,16 +250,86 @@ class ProposalRepository:
                     proposal_item.c.bucket,
                     proposal_item.c.decision,
                     proposal_item.c.reason,
+                    proposal_item.c.replaces_item_id,
                     track.c.catalog_id,
+                    track.c.library_id,
                     track.c.title,
                     track.c.artist_name,
                     track.c.duration_ms,
+                    track.c.genre,
                 )
                 .join(track, track.c.id == proposal_item.c.track_id)
                 .where(proposal_item.c.proposal_id == proposal_id)
-                .order_by(proposal_item.c.position)
+                .order_by(proposal_item.c.position, proposal_item.c.id)
             )
             return {**row_dict(r), "items": [row_dict(i) for i in items]}
+
+    def find(
+        self,
+        *,
+        statuses: Sequence[str] = OPEN_STATUSES,
+        kind: str | None = None,
+        managed_playlist_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Proposals (without items), newest first."""
+        q = select(proposal).where(proposal.c.status.in_(statuses)).order_by(desc(proposal.c.id))
+        if kind is not None:
+            q = q.where(proposal.c.kind == kind)
+        if managed_playlist_id is not None:
+            q = q.where(proposal.c.managed_playlist_id == managed_playlist_id)
+        with self._db.engine.connect() as conn:
+            return [row_dict(r) for r in conn.execute(q)]
+
+    def open_for(
+        self, kind: str, *, managed_playlist_id: int | None = None, playlist_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """The open (pending or approved, not applied) proposal of ``kind`` for one playlist."""
+        for p in self.find(kind=kind):
+            if managed_playlist_id is not None and p["managed_playlist_id"] == managed_playlist_id:
+                return p
+            if playlist_id is not None and (p["params"] or {}).get("playlist_id") == playlist_id:
+                return p
+        return None
+
+    def decide_by_item(self, proposal_id: int, decisions: dict[int, tuple[str, str | None]]) -> int:
+        """Set ``decision``/``reason`` by item id (only items of this proposal). Returns the count."""
+        changed = 0
+        with self._db.engine.begin() as conn:
+            for item_id, (decision, reason) in decisions.items():
+                changed += conn.execute(
+                    update(proposal_item)
+                    .where(proposal_item.c.id == item_id, proposal_item.c.proposal_id == proposal_id)
+                    .values(decision=decision, reason=reason)
+                ).rowcount
+        return changed
+
+    def expire_pending(self, kinds: Sequence[str], older_than: datetime) -> list[int]:
+        """Mark undecided proposals created before ``older_than`` as expired. Returns their ids."""
+        with self._db.engine.begin() as conn:
+            ids = list(
+                conn.execute(
+                    select(proposal.c.id).where(
+                        proposal.c.status == "pending_approval",
+                        proposal.c.kind.in_(kinds),
+                        proposal.c.created_at < older_than,
+                    )
+                ).scalars()
+            )
+            if ids:
+                conn.execute(
+                    update(proposal)
+                    .where(proposal.c.id.in_(ids))
+                    .values(status="expired", decided_at=utcnow())
+                )
+        return [int(i) for i in ids]
+
+    def mark_notified(self, proposal_id: int) -> None:
+        with self._db.engine.begin() as conn:
+            conn.execute(update(proposal).where(proposal.c.id == proposal_id).values(notified_at=utcnow()))
+
+    def update_params(self, proposal_id: int, params: dict[str, Any]) -> None:
+        with self._db.engine.begin() as conn:
+            conn.execute(update(proposal).where(proposal.c.id == proposal_id).values(params=params))
 
     def decide_items(self, proposal_id: int, decisions: dict[str, tuple[str, str | None]]) -> int:
         """Set ``decision``/``reason`` by catalog id. Returns how many items changed."""
@@ -287,7 +372,8 @@ class ProposalRepository:
             )
             .join(proposal_item, proposal_item.c.track_id == track.c.id)
             .join(proposal, proposal.c.id == proposal_item.c.proposal_id)
-            .where(proposal_item.c.decision == "rejected")
+            # A rejected removal means "keep it": only rejected additions are tracks to avoid.
+            .where(proposal_item.c.decision == "rejected", proposal_item.c.action == "add")
             .order_by(desc(proposal.c.created_at))
             .limit(limit)
         )

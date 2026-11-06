@@ -11,7 +11,7 @@ Subcommands:
   schedule         install / uninstall the launchd jobs that run them on this Mac
   pause / resume   pause mode for trips: jobs skip and alerts stay quiet
   finish-pending   create playlists saved while the login was expired
-  refresh          read-only weekly refresh plan: fills "<name> · Descobertas", lists candidates
+  refresh          build a read-only refresh proposal for one playlist (decided in a conversation)
   schedule-refresh run `refresh` weekly on this Mac (launchd); nothing is ever removed automatically
 """
 
@@ -43,9 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="live checks against Apple Music")
     doctor.add_argument("--write", action="store_true", help="also create (and delete) a test playlist")
     sub.add_parser("install-claude", help="register the MCP server in Claude Desktop / Claude Code")
-    refresh = sub.add_parser("refresh", help="read-only refresh plan + discovery staging playlist")
+    refresh = sub.add_parser("refresh", help="build a read-only refresh proposal for one playlist")
     refresh.add_argument("--playlist", required=True, help="exact playlist name in your library")
-    refresh.add_argument("--new-tracks", type=int, help="how many discoveries to stage (default: auto)")
     refresh.add_argument("--notify", action="store_true", help="show a macOS notification with the summary")
     sched = sub.add_parser("schedule-refresh", help="run `refresh` weekly via launchd (macOS)")
     sched.add_argument("--playlist", required=True)
@@ -94,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "refresh":
         from .commands.refresh import run_refresh
 
-        return asyncio.run(run_refresh(args.playlist, new_tracks=args.new_tracks, notify=args.notify))
+        return asyncio.run(run_refresh(args.playlist, notify=args.notify))
     if args.command == "schedule-refresh":
         from .commands.refresh import schedule_refresh
 

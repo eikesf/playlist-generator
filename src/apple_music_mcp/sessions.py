@@ -246,6 +246,7 @@ class CurationSessions:
         *,
         origin: str = "session",
         reason: str | None = None,
+        proposal_id: int | None = None,
     ) -> int:
         """History for edits made through the tools on a managed playlist (no-op for others)."""
         managed = self.managed.get(playlist_id)
@@ -259,7 +260,9 @@ class CurationSessions:
         for sid in removed:
             if sid in songs:
                 events.append((track_info(songs[sid]), "removed", None))
-        return self.events.record(managed["id"], events, origin=origin, reason=reason)
+        return self.events.record(
+            managed["id"], events, origin=origin, reason=reason, proposal_id=proposal_id
+        )
 
 
 async def sync_with_history(
@@ -270,6 +273,7 @@ async def sync_with_history(
     *,
     origin: str = "session",
     reason: str | None = None,
+    proposal_id: int | None = None,
 ) -> EditResult:
     """``PlaylistEditor.sync`` plus the managed playlist's history (added/removed tracks, new id after
     a rebuild). Playlists that are not managed are synced exactly as before."""
@@ -282,5 +286,7 @@ async def sync_with_history(
             sessions.managed.move(playlist_id, result.playlist.id)
         added = [i for i in desired_ids if i not in set(before)]
         removed = [i for i in before if i not in set(desired_ids)]
-        await sessions.record_edit(result.playlist.id, added, removed, origin=origin, reason=reason)
+        await sessions.record_edit(
+            result.playlist.id, added, removed, origin=origin, reason=reason, proposal_id=proposal_id
+        )
     return result

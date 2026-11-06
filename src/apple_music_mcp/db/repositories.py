@@ -9,7 +9,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Connection, and_, func, insert, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -17,6 +17,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from ..text import normalize, primary_artist
 from .database import Database
 from .schema import artist, job_run, play_snapshot, recent_play, track
+
+if TYPE_CHECKING:
+    from ..curation.listening import ListeningWindow
 
 
 def utcnow() -> datetime:
@@ -356,6 +359,34 @@ class ListeningRepository:
 
     def __init__(self, db: Database):
         self._db = db
+
+    def window(self, start: date, end: date) -> ListeningWindow:
+        """Plays and skips gained per song (match key) between ``start`` and ``end``."""
+        from ..curation.listening import SnapshotRow, window_deltas
+
+        query = select(
+            play_snapshot.c.track_id,
+            track.c.match_key,
+            play_snapshot.c.snapshot_date,
+            play_snapshot.c.played_count,
+            play_snapshot.c.skipped_count,
+            play_snapshot.c.favorited,
+            play_snapshot.c.disliked,
+        ).join(track, track.c.id == play_snapshot.c.track_id)
+        with self._db.engine.connect() as conn:
+            rows = [
+                SnapshotRow(
+                    r.track_id,
+                    r.match_key,
+                    r.snapshot_date,
+                    r.played_count,
+                    r.skipped_count,
+                    bool(r.favorited),
+                    bool(r.disliked),
+                )
+                for r in conn.execute(query)
+            ]
+        return window_deltas(rows, start, end)
 
     def latest_by_match_key(self) -> dict[str, Counters]:
         newest = (

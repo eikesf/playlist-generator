@@ -48,9 +48,12 @@ async def insert_into_playlist(
     new_tracks: list[dict[str, Any]],
     current_estimates: list[dict[str, Any]] | None = None,
     allow_rebuild: bool = False,
+    *,
+    origin: str = "session",
+    proposal_id: int | None = None,
 ) -> dict[str, Any]:
     """Insert tracks at their best positions keeping the current order (see ADR 0005).
-    Tracks on the blacklist are never inserted."""
+    Tracks on the blacklist are never inserted. ``origin`` / ``proposal_id`` go to the history."""
     banned = app.blacklist()
     blocked = [
         {"song_id": str(t["id"]), "reason": r}
@@ -96,7 +99,9 @@ async def insert_into_playlist(
         return {"changed": False, "inserted": [], "warnings": plan["warnings"]}
     from .sessions import sync_with_history
 
-    result = await sync_with_history(app, playlist_id, plan["song_ids_in_order"], allow_rebuild)
+    result = await sync_with_history(
+        app, playlist_id, plan["song_ids_in_order"], allow_rebuild, origin=origin, proposal_id=proposal_id
+    )
     out = {
         "edit": result.to_dict(),
         "inserted": plan["inserted"],

@@ -134,19 +134,12 @@ Every edit goes straight to his Apple Music library. Never ask him to drag track
 
 **Golden rule: never remove a track from the main playlist unless he named it or confirmed it.** He could lose a song he liked and not remember its name.
 
-1. Call `plan_playlist_refresh` with the playlist id. It never changes the main playlist. It:
-   - lists `rotation_candidates` (least played): only when his Mac's play counts can really tell them apart. Recent additions and favorites are never included,
-   - lists `removal_candidates` (tracks he marked "dislike"),
-   - adds new discoveries (similar artists he doesn't know yet) to the separate playlist "<name> · Descobertas",
-   - lists `promotion_candidates`: tracks in Descobertas he loved or played a lot.
-2. Show him, by name: the candidates to remove, with plays or the reason, the new tracks staged in Descobertas, and the promotion candidates. Ask with AskUserQuestion (multi-select) which ones to remove and which to promote. If `play_data` is false, say no rotation is suggested and that he can still ask for any track to be removed.
-3. Call `apply_playlist_refresh` with **only** what he confirmed:
-   - `remove_ids`: each track is first copied to "<name> · Arquivo" (so nothing is ever lost), then removed with the rest kept in order,
-   - `promote`: the tracks with estimated bpm/energy (plus `current_estimates` for the main playlist). Each is inserted at the position that fits the vibe and leaves Descobertas.
-   - On `needs_decision`, follow section 8 (ask before recreating).
+1. Call `plan_playlist_refresh` with the playlist id. Nothing changes in Apple Music. It stores a **proposal** and returns its items:
+   - `remove` items with `why`: `often_skipped` or `not_played` (from the Mac's daily play/skip snapshots over the last weeks), or `disliked`. Favorites, loved tracks and recent additions are never included. With too little history it proposes no rotation and `notes` say why: tell him.
+   - `add` items: one replacement per removal (`replaces_item_id`), from the same familiarity bucket, never from the blacklist, his dislikes or tracks he rejected before.
+2. Show him the proposal by name, with plays/skips and the replacement next to each removal, and ask which to accept (AskUserQuestion, multi-select).
+3. `apply_playlist_refresh` with `remove_ids` removes tracks he named directly, outside a proposal: each track is first copied to "<name> · Arquivo" (so nothing is ever lost), then removed with the rest kept in order. On `needs_decision`, follow section 8 (ask before recreating).
 4. Report what moved where and remind him that the Arquivo keeps everything that left.
-
-He can schedule this on the Mac: `apple-music-mcp schedule-refresh --playlist "<name>"` runs the read-only plan weekly, fills Descobertas and shows a notification. The decision always comes back to a conversation.
 
 ## 10. Follow-up
 
