@@ -7,6 +7,7 @@ from mcp.server.mcpserver import MCPServer
 from . import (
     catalog_tools,
     curation_tools,
+    discoveries_tools,
     editing_tools,
     feedback_tools,
     library_tools,
@@ -28,3 +29,4 @@ def register_all(mcp: MCPServer, provider: ContainerProvider) -> None:
     session_tools.register(mcp, provider)
     feedback_tools.register(mcp, provider)
     proposal_tools.register(mcp, provider)
+    discoveries_tools.register(mcp, provider)

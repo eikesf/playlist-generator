@@ -116,6 +116,8 @@ class AppSettings:
     refresh_min_skips: int = 3
     refresh_skip_ratio: float = 0.5
     proposal_ttl_days: int = 7
+    # Weekly Discoveries (guide §7.11): target batch size (accepted between 2/3 and 4/3 of it).
+    discoveries_size: int = 30
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -149,6 +151,7 @@ class AppSettings:
             refresh_min_skips=max(1, _int("REFRESH_MIN_SKIPS", d.refresh_min_skips)),
             refresh_skip_ratio=_ratio("REFRESH_SKIP_RATIO", d.refresh_skip_ratio),
             proposal_ttl_days=max(1, _int("PROPOSAL_TTL_DAYS", d.proposal_ttl_days)),
+            discoveries_size=max(3, _int("DISCOVERIES_SIZE", d.discoveries_size)),
         )
 
     def redacted(self) -> dict[str, object]:
