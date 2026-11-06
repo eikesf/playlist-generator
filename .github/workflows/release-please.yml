@@ -1,14 +1,14 @@
 name: Release please
 
 # Guide §11: semantic versioning from Conventional Commits.
-# On every push to main (a develop -> main release merged by the owner) release-please opens or
-# updates a release PR from `release-please--branches--main` with the version bump and CHANGELOG.
-# Merging that PR tags the release (vX.Y.Z) and creates the GitHub release.
-# After a release, merge main back into develop so both carry the new version.
+# The release PR targets develop (the default branch): every push to develop updates it with the next
+# version and CHANGELOG. Merging it into develop tags vX.Y.Z and creates the GitHub release; the next
+# develop -> main release carries that version to main. No back-merge from main is needed.
 # Needs: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+# A PR opened by GitHub Actions does not start CI by itself: close and reopen it once to run the checks.
 on:
   push:
-    branches: [main]
+    branches: [develop]
 
 permissions:
   contents: write
@@ -20,5 +20,6 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
+          target-branch: develop
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
