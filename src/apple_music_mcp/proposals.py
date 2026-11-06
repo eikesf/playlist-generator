@@ -70,6 +70,7 @@ class ProposalService:
             "summary": counts,
             "window": params.get("window"),
             "notes": params.get("notes") or [],
+            **({"grow_by": params["grow_by"]} if "grow_by" in params else {}),
             "items": items,
         }
 

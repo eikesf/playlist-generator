@@ -234,3 +234,31 @@ async def test_update_managed_playlist_sets_refresh_opt_in_and_slot(fake_apple: 
     assert managed["refresh_enabled"] is True
     assert managed["refresh_schedule"] == {"weekday": "friday", "time": "18:05"}
     assert "schedule install" in out["note"] and bad.is_error
+
+
+async def test_update_managed_playlist_sets_growth(fake_apple: FakeAppleMusic) -> None:
+    from mcp import Client
+
+    from apple_music_mcp.config import Credentials
+    from apple_music_mcp.server import build_server
+
+    from .conftest import build_app
+
+    creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
+    async with Client(build_server(lambda: build_app(creds))) as c:
+        pid = (await c.call_tool("create_playlist", {"name": "Set", "song_ids": MAIN})).structured_content[
+            "playlist"
+        ]["id"]
+        await c.call_tool("adopt_playlist", {"playlist_id": pid, "name": "Set", "purpose": "dj_set"})
+        await c.call_tool("update_managed_playlist", {"playlist_id": pid, "refresh_weekday": "friday"})
+        out = (
+            await c.call_tool("update_managed_playlist", {"playlist_id": pid, "refresh_grow_by": 3})
+        ).structured_content
+        bad = await c.call_tool("update_managed_playlist", {"playlist_id": pid, "refresh_grow_by": 99})
+        plan = (
+            await c.call_tool("plan_playlist_refresh", {"playlist_id": pid, "grow_by": 0})
+        ).structured_content
+    assert out["managed_playlist"]["refresh_schedule"] == {"weekday": "friday", "grow_by": 3}
+    assert "note" not in out  # growth needs no launchd change
+    assert bad.is_error
+    assert plan["grow_by"] == 0  # the per-call override wins

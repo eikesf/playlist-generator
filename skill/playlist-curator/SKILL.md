@@ -134,12 +134,12 @@ Every edit goes straight to his Apple Music library. Never ask him to drag track
 
 **Golden rule: never remove a track from the main playlist unless he named it or confirmed it.** He could lose a song he liked and not remember its name.
 
-Playlists with the refresh on (`update_managed_playlist` with `refresh_enabled: true`; `refresh_weekday` / `refresh_time` change the slot, default Monday 09:00) get a **proposal** every week from a job on his Mac. Nothing changes until he approves. He gets a phone notification "Refresh pronto para <playlist>: X saem, Y entram".
+Playlists with the refresh on (`update_managed_playlist` with `refresh_enabled: true`; `refresh_weekday` / `refresh_time` change the slot, default Monday 09:00) get a **proposal** every week from a job on his Mac. Size is his choice per playlist: by default it keeps its size (one replacement per removal); `refresh_grow_by: N` adds N extra tracks every refresh, so it grows. Ask when he turns the refresh on. Nothing changes until he approves. He gets a phone notification "Refresh pronto para <playlist>: X saem, Y entram".
 
 1. When he mentions the notification or asks what is pending: `list_pending_proposals`, then `show_proposal`.
 2. Show each proposal **by name**, each removal next to its replacement:
    - `remove` items: `why` is `often_skipped` (with skips/plays in the window), `not_played` (no plays in the last weeks while the playlist was played) or `disliked`. Favorites, loved tracks and recent additions are never proposed.
-   - `add` items: the replacement (`replaces_item_id`), from the same familiarity bucket so the mix holds, never from the blacklist, his dislikes or tracks he rejected before.
+   - `add` items: the replacement (`replaces_item_id`), from the same familiarity bucket so the mix holds, never from the blacklist, his dislikes or tracks he rejected before. Items with `why: growth` replace nothing: they are the extra tracks of a playlist set to grow (`grow_by` in the proposal).
    - Read the `notes`: with little play history (the daily snapshots started recently) there is no rotation yet, only dislikes. Say so plainly.
 3. Ask what to accept (AskUserQuestion, multi-select; on the phone a short numbered list is fine). Record it with `decide_proposal`: `accept_item_ids` and `reject` with his reason in his words (rejected additions are avoided in future sessions; a rejected removal just means "keep it"). `accept_all` / `reject_all` cover what is still pending.
 4. Once `approved`, call `apply_proposal`. Pass `estimates` (bpm/energy) for the new tracks and, ideally, the current ones (`get_playlist_tracks`) so each new track lands where it fits. Removed tracks are first copied to "<name> · Arquivo" and verified. On `needs_decision`, follow section 8.

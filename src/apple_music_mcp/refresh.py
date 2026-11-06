@@ -22,6 +22,7 @@ from typing import Any
 
 from .apple.errors import AppleMusicError
 from .container import AppContainer
+from .curation.familiarity import MixTargets, mix_counts
 from .curation.known import KNOWN_ARTIST_NEW_TRACK, KNOWN_TRACK, NEW_ARTIST, PARTLY_KNOWN
 from .curation.listening import Delta, ListeningWindow
 from .db.history import ManagedPlaylistRepository, PlaylistEventRepository, ProposalRepository, ProposedTrack
@@ -45,6 +46,8 @@ class RefreshSettings:
     skip_ratio: float = 0.5
     replace: bool = True  # one-for-one replacements
     seed_artists: list[str] | None = None
+    # Extra tracks per refresh on top of the replacements; None = the playlist's own setting (0 keeps size).
+    grow_by: int | None = None
 
     @classmethod
     def from_app(cls, app: AppContainer, **overrides: Any) -> RefreshSettings:
@@ -192,10 +195,17 @@ class RefreshService:
         )
         removals.extend(rotation)
 
-        replacements: list[tuple[int, dict[str, Any]]] = []
-        if removals and settings.replace:
+        grow_by = settings.grow_by if settings.grow_by is not None else grow_by_of(managed)
+        extra_buckets = _growth_buckets(managed, grow_by)
+        if grow_by:
+            notes.append(f"The playlist grows by {grow_by} track(s) on top of the replacements.")
+        replacements: list[tuple[int | None, dict[str, Any]]] = []
+        if (removals and settings.replace) or extra_buckets:
+            to_replace = removals if settings.replace else []
             try:
-                replacements = await self._replacements(playlist, managed, entries, removals, settings, notes)
+                replacements = await self._replacements(
+                    playlist, managed, entries, to_replace, extra_buckets, settings, notes
+                )
             except AppleMusicError as exc:  # removals still stand; the owner can ask for picks in chat
                 notes.append(f"Replacements unavailable this time ({type(exc).__name__}).")
 
@@ -220,7 +230,10 @@ class RefreshService:
                     replaces=index,
                 )
             )
-            evidence[cand["id"]] = {"why": "replacement", "source": cand["source"]}
+            evidence[cand["id"]] = {
+                "why": "replacement" if index is not None else "growth",
+                "source": cand["source"],
+            }
         if not removals:
             notes.append("Nothing to rotate this week.")
 
@@ -235,6 +248,7 @@ class RefreshService:
                 "playlist_name": playlist.name,
                 "purpose": purpose,
                 "tracks_in_playlist": len(entries),
+                "grow_by": grow_by,
                 "window": {
                     "start": window.start.isoformat(),
                     "end": window.end.isoformat(),
@@ -319,10 +333,12 @@ class RefreshService:
         managed: dict[str, Any] | None,
         entries: list[PlaylistEntry],
         removals: list[tuple[PlaylistEntry, dict[str, Any]]],
+        extra_buckets: list[str],
         settings: RefreshSettings,
         notes: list[str],
-    ) -> list[tuple[int, dict[str, Any]]]:
-        """One candidate per removal, same familiarity bucket when possible (keeps the mix)."""
+    ) -> list[tuple[int | None, dict[str, Any]]]:
+        """One candidate per removal, same familiarity bucket when possible (keeps the mix), then one
+        per extra bucket when the playlist grows (index ``None``: it replaces nothing)."""
         discovery = self.app.discovery
         seeds = settings.seed_artists or self._top_artists(entries, 5)
         in_main = {TrackRef.of(e).id for e in entries}
@@ -348,12 +364,14 @@ class RefreshService:
             return pools[bucket]
 
         banned = self.app.blacklist()
-        chosen: list[tuple[int, dict[str, Any]]] = []
-        missing = 0
-        for index_pos, (e, _) in enumerate(removals):
+        chosen: list[tuple[int | None, dict[str, Any]]] = []
+        missing = extra_missing = 0
+        wanted: list[tuple[int | None, str]] = []
+        for pos, (e, _) in enumerate(removals):
             bucket = index.bucket(e.catalog_id or "", e.artist, e.name) if index else NEW_ARTIST
-            if bucket == PARTLY_KNOWN:
-                bucket = KNOWN_ARTIST_NEW_TRACK
+            wanted.append((pos, KNOWN_ARTIST_NEW_TRACK if bucket == PARTLY_KNOWN else bucket))
+        wanted.extend((None, b) for b in extra_buckets)
+        for index_pos, bucket in wanted:
             order = [bucket] + [b for b in (NEW_ARTIST, KNOWN_ARTIST_NEW_TRACK, KNOWN_TRACK) if b != bucket]
             pick = None
             for b in order:
@@ -370,12 +388,18 @@ class RefreshService:
                 if pick:
                     break
             if pick is None:
-                missing += 1
+                if index_pos is None:
+                    extra_missing += 1
+                else:
+                    missing += 1
                 continue
             excluded.add(str(pick["id"]))
             chosen.append((index_pos, pick))
         if missing:
             notes.append(f"No coherent replacement found for {missing} track(s): the playlist would shrink.")
+        if extra_missing:
+            found = len(extra_buckets) - extra_missing
+            notes.append(f"Only {found} of {len(extra_buckets)} extra track(s) found.")
         return chosen
 
     async def _catalog_songs(self, entries: list[PlaylistEntry]) -> list[Any]:
@@ -547,6 +571,29 @@ class RefreshService:
             allow_rebuild=allow_rebuild,
             reason="owner request",
         )
+
+
+MAX_GROW_BY = 50
+
+
+def grow_by_of(managed: dict[str, Any] | None) -> int:
+    """The playlist's own growth per refresh (kept in ``refresh_schedule``); 0 keeps the size."""
+    value = ((managed or {}).get("refresh_schedule") or {}).get("grow_by") or 0
+    return max(0, min(MAX_GROW_BY, int(value)))
+
+
+def _growth_buckets(managed: dict[str, Any] | None, grow_by: int) -> list[str]:
+    """Familiarity buckets for the extra tracks, following the playlist's mix targets."""
+    if grow_by <= 0:
+        return []
+    m = managed or {}
+    targets = (
+        MixTargets(float(m["known_tracks_pct"]), float(m["known_artists_pct"]))
+        if m.get("known_artists_pct") is not None and m.get("known_tracks_pct") is not None
+        else MixTargets.default()
+    )
+    counts = mix_counts(grow_by, targets)["counts"]
+    return [b for b in (NEW_ARTIST, KNOWN_ARTIST_NEW_TRACK, KNOWN_TRACK) for _ in range(counts[b])]
 
 
 _SOURCES = {KNOWN_TRACK: "known_tracks", KNOWN_ARTIST_NEW_TRACK: "deep_cuts", NEW_ARTIST: "discover_tracks"}

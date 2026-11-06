@@ -7,6 +7,7 @@ from typing import Any, Literal
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
+from ..refresh import MAX_GROW_BY
 from ..sessions import CurationSessions, PreviewTrack
 from .base import ContainerProvider, tool_errors
 
@@ -140,12 +141,15 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
         refresh_weekday: Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         | None = None,
         refresh_time: str | None = None,
+        refresh_grow_by: int | None = None,
     ) -> dict[str, Any]:
         """Change what is remembered about a managed playlist. Changing `purpose` redefines its whole
         profile (guide §7.1): confirm with the user first. `refresh_enabled` / `discoveries_enabled`
         opt the playlist in or out of the weekly refresh and "Descobertas da semana".
         `refresh_weekday` / `refresh_time` ("HH:MM", local time) override the default slot (Monday
-        09:00); a new slot needs `apple-music-mcp schedule install` on the Mac to be loaded."""
+        09:00); a new slot needs `apple-music-mcp schedule install` on the Mac to be loaded.
+        `refresh_grow_by` is the owner's choice of size: 0 (default) keeps the size (one replacement per
+        track removed); N > 0 also proposes N extra tracks per refresh, so the playlist grows."""
         from ..curation.familiarity import MixTargets
 
         s = sessions()
@@ -159,8 +163,13 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             fields["refresh_enabled"] = refresh_enabled
         if discoveries_enabled is not None:
             fields["discoveries_enabled"] = discoveries_enabled
+        schedule = dict(current.get("refresh_schedule") or {})
+        if refresh_grow_by is not None:
+            if not 0 <= refresh_grow_by <= MAX_GROW_BY:
+                raise ValueError(f"refresh_grow_by must be between 0 and {MAX_GROW_BY}")
+            schedule["grow_by"] = refresh_grow_by
+            fields["refresh_schedule"] = schedule
         if refresh_weekday is not None or refresh_time is not None:
-            schedule = dict(current.get("refresh_schedule") or {})
             if refresh_weekday is not None:
                 schedule["weekday"] = refresh_weekday
             if refresh_time is not None:
@@ -179,7 +188,7 @@ def register(mcp: MCPServer, provider: ContainerProvider) -> None:
             profile_slug = provider.get().profiles.get(purpose).key
         s.managed.upsert(playlist_id, origin=current["origin"], profile_slug=profile_slug, **fields)
         out: dict[str, Any] = {"managed_playlist": s.managed.get(playlist_id)}
-        if "refresh_schedule" in fields:
+        if refresh_weekday is not None or refresh_time is not None:
             out["note"] = (
                 "New refresh slot saved. On the Mac, run `apple-music-mcp schedule install` to load it."
             )
