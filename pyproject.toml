@@ -49,9 +49,8 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 files = ["src", "scripts", "tests"]
-check_untyped_defs = true
-warn_unused_ignores = true
-warn_redundant_casts = true
+# Owner's decision (risk assessment §7): strict typing on every module, tests included.
+strict = true
 
 [[tool.mypy.overrides]]
 # Optional extra (`.[browser]`); imported lazily and not installed in CI.

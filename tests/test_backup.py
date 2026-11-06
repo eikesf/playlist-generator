@@ -7,10 +7,12 @@ import sqlite3
 import stat
 from dataclasses import replace
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
 from apple_music_mcp.backup import BackupError, retention, run_backup
+from apple_music_mcp.config import Credentials
 from apple_music_mcp.db import Database
 from apple_music_mcp.db.settings import SettingsStore
 from apple_music_mcp.jobs import run_job
@@ -23,7 +25,7 @@ def name(d: date) -> str:
     return f"apple-music-mcp-{d.isoformat()}.db.gz"
 
 
-def test_retention_keeps_7_daily_and_4_weekly():
+def test_retention_keeps_7_daily_and_4_weekly() -> None:
     today = date(2026, 11, 30)  # a Monday
     names = [name(today - timedelta(days=i)) for i in range(60)] + ["notes.txt", "apple-music-mcp-x.db.gz"]
     keep, remove = retention(names, keep_daily=7, keep_weekly=4)
@@ -36,7 +38,7 @@ def test_retention_keeps_7_daily_and_4_weekly():
     assert len(keep) + len(remove) == 60
 
 
-def test_backup_is_a_valid_compressed_copy_and_old_files_are_pruned(tmp_path):
+def test_backup_is_a_valid_compressed_copy_and_old_files_are_pruned(tmp_path: Path) -> None:
     db = Database.open(tmp_path / "live.db")
     SettingsStore(db).set("hello", "world")
     target = tmp_path / "icloud" / "backups"
@@ -59,14 +61,14 @@ def test_backup_is_a_valid_compressed_copy_and_old_files_are_pruned(tmp_path):
     db.dispose()
 
 
-def test_missing_icloud_folder_is_a_clear_error(tmp_path):
+def test_missing_icloud_folder_is_a_clear_error(tmp_path: Path) -> None:
     db = Database.open(tmp_path / "live.db")
     with pytest.raises(BackupError, match="iCloud Drive"):
         run_backup(db.path, tmp_path / "no-icloud" / "backups", date(2026, 11, 6))
     db.dispose()
 
 
-async def test_backup_job_records_the_file(logged_in_creds, tmp_path):
+async def test_backup_job_records_the_file(logged_in_creds: Credentials, tmp_path: Path) -> None:
     settings = replace(AppSettings(), backup_dir=tmp_path / "backups")
     async with build_app(logged_in_creds, settings=settings) as app:
         outcome = await run_job("backup", app)

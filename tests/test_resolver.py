@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from apple_music_mcp.container import AppContainer
 from apple_music_mcp.models import Song
 from apple_music_mcp.resolver import TrackRequest, resolve_tracks, score, split_title
 
@@ -15,28 +16,28 @@ from apple_music_mcp.resolver import TrackRequest, resolve_tracks, score, split_
         ("Opus", "", "Opus"),
     ],
 )
-def test_parse_requests(raw, artist, title):
+def test_parse_requests(raw: str, artist: str | None, title: str) -> None:
     req = TrackRequest.parse(raw)
     assert (req.artist, req.title) == (artist, title)
 
 
-def test_parse_dict_request():
+def test_parse_dict_request() -> None:
     req = TrackRequest.parse({"artist": "Eric Prydz", "title": "Opus"})
     assert req.raw == "Eric Prydz - Opus"
 
 
-def test_split_title_extracts_versions():
+def test_split_title_extracts_versions() -> None:
     assert split_title("Gravity (Ann Clue Remix)") == ("gravity", {"remix"}, "ann clue remix")
     assert split_title("Song - Radio Edit")[1] == {"radio", "edit"}
     assert split_title("Track (feat. Someone)")[0] == "track"
     assert split_title("Café del Mar")[0] == "cafe del mar"
 
 
-def _song(name, artist, sid="1"):
+def _song(name: str, artist: str, sid: str = "1") -> Song:
     return Song(id=sid, name=name, artist=artist)
 
 
-def test_score_penalizes_unrequested_versions_and_covers():
+def test_score_penalizes_unrequested_versions_and_covers() -> None:
     req = TrackRequest.parse("Stephan Bodzin - Singularity")
     good, _ = score(req, _song("Singularity", "Stephan Bodzin"))
     karaoke, note = score(req, _song("Singularity (Karaoke Version)", "Karaoke Hits Band"))
@@ -46,26 +47,26 @@ def test_score_penalizes_unrequested_versions_and_covers():
     assert live < 80 and live_note and "version differs" in live_note
 
 
-def test_score_requires_the_same_remixer():
+def test_score_requires_the_same_remixer() -> None:
     req = TrackRequest.parse("Boris Brejcha - Gravity (Ann Clue Remix)")
     assert score(req, _song("Gravity (Ann Clue Remix)", "Boris Brejcha"))[0] >= 90
     assert score(req, _song("Gravity (Someone Else Remix)", "Boris Brejcha"))[0] < 80
     assert score(req, _song("Gravity", "Boris Brejcha"))[0] < 80
 
 
-def test_score_handles_collab_artists_and_accents():
+def test_score_handles_collab_artists_and_accents() -> None:
     req = TrackRequest.parse("Adam Beyer, Bart Skils - Your Mind")
     assert score(req, _song("Your Mind", "Adam Beyer & Bart Skils"))[0] >= 90
     req2 = TrackRequest.parse("Energy 52 - Cafe Del Mar (Michael Woods Remix)")
     assert score(req2, _song("Café del Mar (Michael Woods Remix)", "Energy 52"))[0] >= 90
 
 
-def test_score_rejects_wrong_artist():
+def test_score_rejects_wrong_artist() -> None:
     req = TrackRequest.parse("Amelie Lens - Gravity")
     assert score(req, _song("Gravity", "Boris Brejcha"))[0] < 80
 
 
-async def test_resolve_tracks_end_to_end(app):
+async def test_resolve_tracks_end_to_end(app: AppContainer) -> None:
     report = await resolve_tracks(
         app.catalog,
         [

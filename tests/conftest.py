@@ -4,11 +4,21 @@ import base64
 import json
 import shutil
 import time
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
+import respx
 from mcp.types import CallToolResult, TextContent
 
 from apple_music_mcp import config
+from apple_music_mcp.config import Credentials
+
+if TYPE_CHECKING:
+    from apple_music_mcp.container import AppContainer
+
+    from .fake_apple import FakeAppleMusic
 
 
 def result_text(result: CallToolResult) -> str:
@@ -19,22 +29,22 @@ def result_text(result: CallToolResult) -> str:
 
 
 def make_jwt(exp: float | None = None) -> str:
-    def b64(obj: dict) -> str:
+    def b64(obj: dict[str, Any]) -> str:
         return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
 
-    payload = {"iss": "TEST", "iat": int(time.time())}
+    payload: dict[str, Any] = {"iss": "TEST", "iat": int(time.time())}
     if exp is not None:
         payload["exp"] = int(exp)
     return f"{b64({'alg': 'ES256', 'kid': 'X'})}.{b64(payload)}.c2lnbmF0dXJl"
 
 
 @pytest.fixture
-def jwt_factory():
+def jwt_factory() -> Callable[[float | None], str]:
     return make_jwt
 
 
 @pytest.fixture(scope="session")
-def migrated_db_template(tmp_path_factory):
+def migrated_db_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One migrated database per test run; tests get a copy instead of re-running migrations."""
     from apple_music_mcp.db import Database
 
@@ -44,7 +54,7 @@ def migrated_db_template(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def isolated_config(tmp_path, monkeypatch, migrated_db_template):
+def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, migrated_db_template: Path) -> Path:
     """Every test gets its own config dir (with a fresh, migrated database) and no token env vars."""
     from apple_music_mcp.db import DB_FILE
 
@@ -63,7 +73,7 @@ def isolated_config(tmp_path, monkeypatch, migrated_db_template):
 
 
 @pytest.fixture
-def fake_apple(respx_mock):
+def fake_apple(respx_mock: respx.MockRouter) -> FakeAppleMusic:
     from .fake_apple import FakeAppleMusic
 
     return FakeAppleMusic().install(respx_mock)
@@ -73,19 +83,19 @@ async def no_sleep(_: float) -> None:
     return None
 
 
-def build_app(creds: config.Credentials, **kwargs):
+def build_app(creds: config.Credentials, **kwargs: Any) -> AppContainer:
     from apple_music_mcp.container import AppContainer
 
     return AppContainer(creds, sleep=no_sleep, **kwargs)
 
 
 @pytest.fixture
-def logged_in_creds(fake_apple):
+def logged_in_creds(fake_apple: FakeAppleMusic) -> Credentials:
     return config.Credentials(media_user_token=fake_apple.user_token, storefront=fake_apple.storefront)
 
 
 @pytest.fixture
-async def app(logged_in_creds):
+async def app(logged_in_creds: Credentials) -> AsyncIterator[AppContainer]:
     """A container with a valid user token and no developer token (it must scrape one)."""
     async with build_app(logged_in_creds) as container:
         yield container

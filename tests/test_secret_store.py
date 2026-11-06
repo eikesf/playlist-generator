@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import json
-import os
 import stat
+from pathlib import Path
+
+import pytest
 
 from apple_music_mcp.config import ENV_USER_TOKEN, Credentials, CredentialStore
 from apple_music_mcp.secrets import ENV_SECRET_BACKEND, MemoryBackend, default_backend
 from apple_music_mcp.settings import AppSettings, load_env_file
 
+from .fake_apple import FakeAppleMusic
+
 TOKEN = "user-token-" + "x" * 30
 
 
-def test_save_puts_secrets_in_keychain_and_nothing_secret_in_the_file(tmp_path):
+def test_save_puts_secrets_in_keychain_and_nothing_secret_in_the_file(tmp_path: Path) -> None:
     backend = MemoryBackend()
     store = CredentialStore(tmp_path / "credentials.json", secrets=backend)
     store.save(Credentials(media_user_token=TOKEN, storefront="br", getsongbpm_api_key="bpm-key-123456789"))
@@ -29,7 +33,7 @@ def test_save_puts_secrets_in_keychain_and_nothing_secret_in_the_file(tmp_path):
     assert loaded.media_user_token == TOKEN and loaded.storefront == "br"
 
 
-def test_load_moves_legacy_file_secrets_into_the_keychain(tmp_path):
+def test_load_moves_legacy_file_secrets_into_the_keychain(tmp_path: Path) -> None:
     path = tmp_path / "credentials.json"
     CredentialStore(path, secrets=None).save(Credentials(media_user_token=TOKEN, storefront="us"))
     assert TOKEN in path.read_text()
@@ -47,7 +51,7 @@ class _BrokenBackend(MemoryBackend):
         return None
 
 
-def test_file_secret_is_kept_when_the_keychain_does_not_store_it(tmp_path):
+def test_file_secret_is_kept_when_the_keychain_does_not_store_it(tmp_path: Path) -> None:
     path = tmp_path / "credentials.json"
     CredentialStore(path, secrets=None).save(Credentials(media_user_token=TOKEN))
     creds = CredentialStore(path, secrets=_BrokenBackend()).load()
@@ -55,7 +59,7 @@ def test_file_secret_is_kept_when_the_keychain_does_not_store_it(tmp_path):
     assert TOKEN in path.read_text()  # never lose the only copy
 
 
-def test_environment_variable_wins_and_is_not_copied(tmp_path, monkeypatch):
+def test_environment_variable_wins_and_is_not_copied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     backend = MemoryBackend()
     backend.set("media_user_token", "keychain-token-" + "y" * 30)
     monkeypatch.setenv(ENV_USER_TOKEN, TOKEN)
@@ -64,7 +68,7 @@ def test_environment_variable_wins_and_is_not_copied(tmp_path, monkeypatch):
     assert backend.values["media_user_token"] != TOKEN
 
 
-def test_backend_choice(monkeypatch):
+def test_backend_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(ENV_SECRET_BACKEND, "file")
     assert default_backend() is None
     monkeypatch.setenv(ENV_SECRET_BACKEND, "keychain")
@@ -72,7 +76,9 @@ def test_backend_choice(monkeypatch):
     assert backend is not None and backend.name == "keychain"
 
 
-def test_env_file_fills_settings_without_overriding_real_variables(isolated_config, monkeypatch):
+def test_env_file_fills_settings_without_overriding_real_variables(
+    isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     for key in ("NTFY_TOPIC", "RECENT_PLAYED_TIMES", "BACKUP_DIR", "APPLE_WEB_API_ENABLED"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("APPLE_WEB_API_ENABLED", "true")
@@ -86,9 +92,7 @@ def test_env_file_fills_settings_without_overriding_real_variables(isolated_conf
         settings = AppSettings.from_env()
         assert settings.ntfy_topic == "random-topic-abc"
         assert settings.recent_played_times == ("10:30", "12:30", "22:30")  # 25:00 ignored
-        assert settings.backup_dir == os.path.expanduser("~/backups") or str(settings.backup_dir).endswith(
-            "backups"
-        )
+        assert settings.backup_dir == Path("~/backups").expanduser()
         assert settings.apple_web_api_enabled is True  # the real variable won
         assert settings.redacted()["ntfy_topic"] == "set"
     finally:
@@ -96,14 +100,16 @@ def test_env_file_fills_settings_without_overriding_real_variables(isolated_conf
             monkeypatch.delenv(key, raising=False)
 
 
-def test_defaults_follow_the_guide():
+def test_defaults_follow_the_guide() -> None:
     s = AppSettings()
     assert (s.timezone, s.known_min_plays, s.refresh_auto_apply) == ("America/Sao_Paulo", 10, False)
     assert (s.backup_keep_daily, s.backup_keep_weekly) == (7, 4)
     assert s.recent_played_times == ("10:30", "22:30")
 
 
-async def test_kill_switch_blocks_the_web_api_and_search_falls_back(fake_apple, logged_in_creds):
+async def test_kill_switch_blocks_the_web_api_and_search_falls_back(
+    fake_apple: FakeAppleMusic, logged_in_creds: Credentials
+) -> None:
     from dataclasses import replace
 
     from apple_music_mcp.apple.errors import WebApiDisabled
@@ -123,7 +129,7 @@ async def test_kill_switch_blocks_the_web_api_and_search_falls_back(fake_apple, 
         assert songs  # served by the iTunes Search fallback
 
 
-def test_token_expiry_is_recorded_or_estimated(isolated_config):
+def test_token_expiry_is_recorded_or_estimated(isolated_config: Path) -> None:
     from datetime import UTC, datetime
 
     from apple_music_mcp.db import Database

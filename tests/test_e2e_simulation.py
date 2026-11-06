@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from mcp import Client
 
 from apple_music_mcp.config import Credentials, load_credentials
 from apple_music_mcp.server import build_server
 
 from .conftest import build_app
+from .fake_apple import FakeAppleMusic
 
 
-async def test_techno_set_is_created_in_order(fake_apple, tmp_path):
+async def test_techno_set_is_created_in_order(fake_apple: FakeAppleMusic, tmp_path: Path) -> None:
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
     server = build_server(lambda: build_app(creds))
 
@@ -64,7 +67,9 @@ async def test_techno_set_is_created_in_order(fake_apple, tmp_path):
     assert load_credentials().developer_token == fake_apple.dev_token
 
 
-async def test_create_playlist_resolves_free_text_in_one_call(fake_apple, tmp_path):
+async def test_create_playlist_resolves_free_text_in_one_call(
+    fake_apple: FakeAppleMusic, tmp_path: Path
+) -> None:
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
     server = build_server(lambda: build_app(creds))
     async with Client(server) as c:
@@ -83,7 +88,9 @@ async def test_create_playlist_resolves_free_text_in_one_call(fake_apple, tmp_pa
     assert fake_apple.playlists[pid]["tracks"] == ["7001", "2002"]
 
 
-async def test_purpose_driven_flow_plan_resolve_order_create(fake_apple, tmp_path):
+async def test_purpose_driven_flow_plan_resolve_order_create(
+    fake_apple: FakeAppleMusic, tmp_path: Path
+) -> None:
     """User: "a short techno set that builds like a DJ set". Claude follows the skill's steps."""
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
     server = build_server(lambda: build_app(creds))

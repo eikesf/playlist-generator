@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import plistlib
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
 
+from apple_music_mcp.config import Credentials
 from apple_music_mcp.db.repositories import JobRunRepository, count_new_items
 from apple_music_mcp.db.schema import job_run, play_snapshot, recent_play, track
 from apple_music_mcp.jobs import NullNotifier, run_job
@@ -16,16 +18,19 @@ from apple_music_mcp.pause import pause, pause_status, resume
 from apple_music_mcp.settings import AppSettings
 
 from .conftest import build_app
+from .fake_apple import FakeAppleMusic
 
 
-def library_line(pid, name, artist, plays, skips=0, fav="false", duration="245,5"):
+def library_line(
+    pid: str, name: str, artist: str, plays: int, skips: int = 0, fav: str = "false", duration: str = "245,5"
+) -> str:
     return SEP.join(
         [pid, name, artist, "missing value", "Techno", duration, str(plays), str(skips), fav, "false"]
     )
 
 
-def music_app(lines):
-    async def runner(args):
+def music_app(lines: list[list[str]]) -> MusicAppReader:
+    async def runner(args: list[str]) -> tuple[int, str, str]:
         if args[0] == "library":
             return 0, "\n".join(lines[0]), ""
         return 1, "", "unexpected"
@@ -33,13 +38,13 @@ def music_app(lines):
     return MusicAppReader(runner=runner, system="Darwin")
 
 
-def test_parse_library_handles_locale_decimal_and_missing_values():
+def test_parse_library_handles_locale_decimal_and_missing_values() -> None:
     [t] = parse_library(library_line("ABC123", "Doppler", "Charlotte de Witte", 12, 1, "true"))
     assert (t.persistent_id, t.album, t.genre, t.duration_ms) == ("ABC123", None, "Techno", 245500)
     assert (t.played, t.skipped, t.favorited) == (12, 1, True)
 
 
-async def test_snapshot_is_sparse_and_idempotent(logged_in_creds):
+async def test_snapshot_is_sparse_and_idempotent(logged_in_creds: Credentials) -> None:
     lines = [
         [
             library_line("P1", "Doppler", "Charlotte de Witte", 12),
@@ -63,14 +68,16 @@ async def test_snapshot_is_sparse_and_idempotent(logged_in_creds):
             assert list(plays) == [3, 13]
 
 
-def test_new_items_are_counted_from_the_previous_newest_item():
+def test_new_items_are_counted_from_the_previous_newest_item() -> None:
     assert count_new_items([], [1, 2, 3]) == (3, False)
     assert count_new_items([1, 2, 3], [9, 8, 1, 2, 3]) == (2, False)
     assert count_new_items([1, 2, 3], [1, 2, 3]) == (0, False)
     assert count_new_items([1, 2, 3], [7, 8, 9]) == (3, True)  # history overflowed between runs
 
 
-async def test_recent_played_records_each_run_and_counts_new_plays(fake_apple, logged_in_creds):
+async def test_recent_played_records_each_run_and_counts_new_plays(
+    fake_apple: FakeAppleMusic, logged_in_creds: Credentials
+) -> None:
     fake_apple.recent_ids = ["1002", "1001"]
     async with build_app(logged_in_creds) as app:
         first = await run_job("recent_played", app)
@@ -82,7 +89,9 @@ async def test_recent_played_records_each_run_and_counts_new_plays(fake_apple, l
             assert conn.execute(select(func.count()).select_from(recent_play)).scalar_one() == 5
 
 
-async def test_doctor_job_records_checks_and_alerts_on_failure(fake_apple, logged_in_creds):
+async def test_doctor_job_records_checks_and_alerts_on_failure(
+    fake_apple: FakeAppleMusic, logged_in_creds: Credentials
+) -> None:
     notifier = NullNotifier()
     async with build_app(logged_in_creds, music_app=MusicAppReader(system="Linux")) as app:
         outcome = await run_job("doctor", app, notifier)
@@ -97,10 +106,10 @@ async def test_doctor_job_records_checks_and_alerts_on_failure(fake_apple, logge
         assert last is not None and last["status"] == "failed"
 
 
-async def test_failing_job_is_recorded_alerted_and_raised(logged_in_creds):
+async def test_failing_job_is_recorded_alerted_and_raised(logged_in_creds: Credentials) -> None:
     notifier = NullNotifier()
 
-    async def broken(args):
+    async def broken(args: list[str]) -> tuple[int, str, str]:
         return 1, "", "execution error: Not authorized to send Apple events to Music. (-1743)"
 
     async with build_app(logged_in_creds, music_app=MusicAppReader(runner=broken, system="Darwin")) as app:
@@ -111,7 +120,7 @@ async def test_failing_job_is_recorded_alerted_and_raised(logged_in_creds):
         assert notifier.sent[0][0] == "apple-music-mcp: snapshot failed"
 
 
-async def test_pause_mode_skips_jobs_until_resumed(logged_in_creds):
+async def test_pause_mode_skips_jobs_until_resumed(logged_in_creds: Credentials) -> None:
     async with build_app(logged_in_creds) as app:
         pause(app.state, None, "trip")
         assert pause_status(app.state)
@@ -123,7 +132,7 @@ async def test_pause_mode_skips_jobs_until_resumed(logged_in_creds):
             assert conn.execute(select(job_run.c.status)).scalars().all() == ["skipped_paused"]
 
 
-def test_launchd_agents_follow_the_settings(tmp_path):
+def test_launchd_agents_follow_the_settings(tmp_path: Path) -> None:
     from apple_music_mcp.commands.jobs import LABEL_PREFIX, write_agents
 
     settings = replace(AppSettings(), recent_played_times=("10:30", "12:30", "22:30"), heartbeat_minutes=10)

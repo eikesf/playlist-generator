@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 
 from apple_music_mcp.apple.http import RateLimiter, RetryPolicy, send_with_retry
 from apple_music_mcp.apple.transport import cache_rule
+from apple_music_mcp.container import AppContainer
 from apple_music_mcp.db import Database
 from apple_music_mcp.db.cache import ResponseCache, cache_key
 
+from .fake_apple import FakeAppleMusic
 
-def test_backoff_is_1_2_4_seconds_and_429_waits_longer():
+
+def test_backoff_is_1_2_4_seconds_and_429_waits_longer() -> None:
     policy = RetryPolicy()
     waits = [policy.delay(httpx.Response(503), n) for n in (1, 2, 3)]
     assert waits == [1.0, 2.0, 4.0]
@@ -24,7 +28,7 @@ def test_backoff_is_1_2_4_seconds_and_429_waits_longer():
     assert policy.delay(None, 2) == 2.0  # network error
 
 
-async def test_total_wait_is_bounded_so_tool_calls_do_not_time_out():
+async def test_total_wait_is_bounded_so_tool_calls_do_not_time_out() -> None:
     slept: list[float] = []
 
     async def sleep(seconds: float) -> None:
@@ -39,7 +43,7 @@ async def test_total_wait_is_bounded_so_tool_calls_do_not_time_out():
     assert slept == [8.0]  # a second 8 s wait would pass the 15 s budget
 
 
-async def test_network_errors_are_retried_then_raised():
+async def test_network_errors_are_retried_then_raised() -> None:
     calls = 0
 
     async def flaky() -> httpx.Response:
@@ -61,7 +65,7 @@ async def test_network_errors_are_retried_then_raised():
         await send_with_retry(dead, RetryPolicy(), no_sleep)
 
 
-async def test_rate_limiter_spaces_requests_and_caps_concurrency():
+async def test_rate_limiter_spaces_requests_and_caps_concurrency() -> None:
     clock = [0.0]
     waits: list[float] = []
 
@@ -86,7 +90,7 @@ async def test_rate_limiter_spaces_requests_and_caps_concurrency():
     assert clock[0] == pytest.approx(0.8)  # 5 requests at 5/s: slots 0, .2, .4, .6, .8
 
 
-def test_cache_rules_never_cover_playlists_or_writes():
+def test_cache_rules_never_cover_playlists_or_writes() -> None:
     def ns(path: str) -> str | None:
         rule = cache_rule("GET", path)
         return rule.namespace if rule else None
@@ -100,7 +104,7 @@ def test_cache_rules_never_cover_playlists_or_writes():
     assert cache_rule("POST", "/v1/catalog/br/search") is None
 
 
-def test_response_cache_expires_and_invalidates(tmp_path):
+def test_response_cache_expires_and_invalidates(tmp_path: Path) -> None:
     db = Database.open(tmp_path / "c.db")
     now = [datetime(2026, 11, 6, tzinfo=UTC)]
     cache = ResponseCache(db, clock=lambda: now[0])
@@ -116,7 +120,9 @@ def test_response_cache_expires_and_invalidates(tmp_path):
     db.dispose()
 
 
-async def test_repeated_catalog_search_is_served_from_cache(app, fake_apple):
+async def test_repeated_catalog_search_is_served_from_cache(
+    app: AppContainer, fake_apple: FakeAppleMusic
+) -> None:
     await app.catalog.search_songs("Stephan Bodzin Singularity")
     before = len([c for c in fake_apple.calls if c[1].endswith("/search")])
     await app.catalog.search_songs("Stephan Bodzin Singularity")
@@ -124,7 +130,7 @@ async def test_repeated_catalog_search_is_served_from_cache(app, fake_apple):
     assert before == after == 1
 
 
-async def test_playlist_reads_always_hit_apple(app, fake_apple):
+async def test_playlist_reads_always_hit_apple(app: AppContainer, fake_apple: FakeAppleMusic) -> None:
     pl = await app.library.create_playlist("Cache check")
     await app.library.add_tracks(pl.id, ["4001"])
     first = await app.library.playlist_tracks(pl.id)

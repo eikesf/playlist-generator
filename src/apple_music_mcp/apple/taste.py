@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import time
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from ..models import Song
 from ..ports import KeyValueStore
@@ -17,6 +18,7 @@ from ..text import artist_names
 from .errors import AppleMusicError, AuthError
 from .transport import AmpTransport
 
+T = TypeVar("T")
 CACHE_KEY = "taste_cache"
 CACHE_TTL_SECONDS = 6 * 3600
 MAX_LIBRARY_SONGS = 5000
@@ -154,7 +156,7 @@ class TasteService:
         profile.artist_counts = dict(counts)
         return profile
 
-    async def _optional(self, fn: Any) -> list:
+    async def _optional(self, fn: Callable[[], Awaitable[list[T]]]) -> list[T]:
         """Recent/heavy-rotation are nice-to-have: some accounts return errors or nothing."""
         try:
             return await fn()

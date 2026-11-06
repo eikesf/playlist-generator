@@ -17,6 +17,7 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 from urllib.parse import unquote, urljoin
 
 import httpx
@@ -58,7 +59,7 @@ def find_script_refs(text: str) -> list[str]:
     return seen
 
 
-def _jwt_payload(token: str) -> dict:
+def _jwt_payload(token: str) -> dict[str, Any]:
     part = token.split(".")[1]
     try:
         data = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))

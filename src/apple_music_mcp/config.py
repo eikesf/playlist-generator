@@ -20,6 +20,7 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .secrets import SECRET_FIELDS, SERVICE, SecretBackend, default_backend
 
@@ -92,7 +93,7 @@ class Credentials:
             return False
         return exp - margin > (now if now is not None else time.time())
 
-    def redacted(self) -> dict:
+    def redacted(self) -> dict[str, Any]:
         exp = self.developer_token_expires_at
         return {
             "media_user_token": mask(self.media_user_token),
@@ -131,7 +132,7 @@ def load_credentials(path: Path | None = None) -> Credentials:
     return creds
 
 
-def write_private_json(path: Path, data: dict) -> Path:
+def write_private_json(path: Path, data: dict[str, Any]) -> Path:
     """Write JSON atomically with owner-only permissions (dir 0700, file 0600)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
@@ -221,7 +222,7 @@ def _file_only(path: Path) -> Credentials:
             os.environ[_ENV_FOR_FIELD[k]] = v
 
 
-def _without_secrets(creds: Credentials) -> dict:
+def _without_secrets(creds: Credentials) -> dict[str, Any]:
     data = asdict(creds)
     for name in SECRET_FIELDS:
         data[name] = None

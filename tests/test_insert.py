@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import random
 import time
+from pathlib import Path
 
 from mcp import Client
+from mcp.server.mcpserver import MCPServer
 
 from apple_music_mcp.config import Credentials
 from apple_music_mcp.curation.profiles import PROFILES
@@ -13,11 +15,12 @@ from apple_music_mcp.curation.sequencer import Sequencer, TrackFeatures, insert_
 from apple_music_mcp.server import build_server
 
 from .conftest import build_app
+from .fake_apple import FakeAppleMusic
 
 DJ = PROFILES["dj_set"]
 
 
-def _t(i, artist, bpm, energy, ms=390_000):
+def _t(i: str, artist: str, bpm: float, energy: float, ms: int = 390_000) -> TrackFeatures:
     return TrackFeatures(id=i, artist=artist, title=i, bpm=bpm, energy=energy, duration_ms=ms)
 
 
@@ -43,7 +46,7 @@ def _is_subsequence(small: list[str], big: list[str]) -> bool:
     return all(x in it for x in small)
 
 
-def test_existing_order_is_never_changed():
+def test_existing_order_is_never_changed() -> None:
     base = _set()
     rnd = random.Random(5)
     new = [_t(f"n{k}", f"New {k}", rnd.uniform(120, 138), rnd.uniform(2, 10)) for k in range(6)]
@@ -54,7 +57,7 @@ def test_existing_order_is_never_changed():
     assert {p["id"] for p in report["inserted"]} == {t.id for t in new}
 
 
-def test_calm_track_goes_to_the_opening_and_banger_to_the_peak():
+def test_calm_track_goes_to_the_opening_and_banger_to_the_peak() -> None:
     base = _set()
     calm = _t("calm", "Christian Löffler", 118, 2.5)
     banger = _t("bang", "Enrico Sangiuliano", 135, 9.8)
@@ -66,7 +69,7 @@ def test_calm_track_goes_to_the_opening_and_banger_to_the_peak():
     assert placed["bang"]["after"] and placed["bang"]["before"]  # sits between two peak tracks
 
 
-def test_low_energy_track_lands_in_a_low_energy_region_and_pinning_decides_which():
+def test_low_energy_track_lands_in_a_low_energy_region_and_pinning_decides_which() -> None:
     free = insert_tracks(DJ, _set(), [_t("close", "Ben Böhmer", 120, 4)])["inserted"][0]
     assert free["act"] in {"Atmospheric opening", "Groove / warm-up", "Cooldown"}
     pinned_track = _t("close", "Ben Böhmer", 120, 4)
@@ -75,7 +78,7 @@ def test_low_energy_track_lands_in_a_low_energy_region_and_pinning_decides_which
     assert pinned["act"] == "Cooldown" and pinned["position"] >= 10
 
 
-def test_new_track_avoids_landing_next_to_the_same_artist():
+def test_new_track_avoids_landing_next_to_the_same_artist() -> None:
     base = _set()
     report = insert_tracks(DJ, base, [_t("g2", "Charlotte de Witte", 133, 9.5)])
     ids = report["song_ids_in_order"]
@@ -84,7 +87,7 @@ def test_new_track_avoids_landing_next_to_the_same_artist():
     assert "g" not in neighbours
 
 
-def test_tracks_already_in_the_playlist_are_skipped():
+def test_tracks_already_in_the_playlist_are_skipped() -> None:
     base = _set()
     report = insert_tracks(DJ, base, [_t("d", "Amelie Lens", 126, 6)])
     assert report["inserted"] == []
@@ -92,12 +95,12 @@ def test_tracks_already_in_the_playlist_are_skipped():
     assert any("Already in the playlist" in w for w in report["warnings"])
 
 
-def test_inserting_into_an_empty_playlist_works():
+def test_inserting_into_an_empty_playlist_works() -> None:
     report = insert_tracks(DJ, [], [_t("x", "A", 125, 5), _t("y", "B", 122, 3)])
     assert sorted(report["song_ids_in_order"]) == ["x", "y"]
 
 
-def test_inserting_5_tracks_into_75_is_fast():
+def test_inserting_5_tracks_into_75_is_fast() -> None:
     rnd = random.Random(9)
     pool = [_t(str(i), f"A{i % 25}", rnd.uniform(118, 140), rnd.uniform(2, 10)) for i in range(75)]
     base = Sequencer(DJ).order(pool)
@@ -119,14 +122,16 @@ ESTIMATES = [
 ]
 
 
-async def _setup(fake_apple, tmp_path):
+async def _setup(fake_apple: FakeAppleMusic, tmp_path: Path) -> tuple[MCPServer, list[str]]:
     creds = Credentials(media_user_token=fake_apple.user_token, storefront="br")
     server = build_server(lambda: build_app(creds))
-    original = [e["id"] for e in ESTIMATES]
+    original = [str(e["id"]) for e in ESTIMATES]
     return server, original
 
 
-async def test_insert_tool_places_tracks_and_keeps_existing_order(fake_apple, tmp_path):
+async def test_insert_tool_places_tracks_and_keeps_existing_order(
+    fake_apple: FakeAppleMusic, tmp_path: Path
+) -> None:
     server, original = await _setup(fake_apple, tmp_path)
     async with Client(server) as c:
         pid = (
@@ -157,7 +162,9 @@ async def test_insert_tool_places_tracks_and_keeps_existing_order(fake_apple, tm
     assert data["edit"]["strategy"] == "in_place" and data["edit"]["playlist"]["id"] == pid
 
 
-async def test_insert_tool_without_estimates_still_preserves_order(fake_apple, tmp_path):
+async def test_insert_tool_without_estimates_still_preserves_order(
+    fake_apple: FakeAppleMusic, tmp_path: Path
+) -> None:
     server, original = await _setup(fake_apple, tmp_path)
     async with Client(server) as c:
         pid = (
@@ -176,7 +183,9 @@ async def test_insert_tool_without_estimates_still_preserves_order(fake_apple, t
     assert any("no bpm/energy estimate" in w for w in data["warnings"])
 
 
-async def test_insert_tool_asks_before_rebuilding_then_rebuilds_on_confirmation(fake_apple, tmp_path):
+async def test_insert_tool_asks_before_rebuilding_then_rebuilds_on_confirmation(
+    fake_apple: FakeAppleMusic, tmp_path: Path
+) -> None:
     fake_apple.remove_variants = set()  # account refuses in-place removal
     server, original = await _setup(fake_apple, tmp_path)
     args = {
@@ -206,7 +215,7 @@ async def test_insert_tool_asks_before_rebuilding_then_rebuilds_on_confirmation(
     assert _is_subsequence(original, fake_apple.playlists[new_pid]["tracks"])
 
 
-async def test_remove_keeps_the_order_of_the_rest(fake_apple, tmp_path):
+async def test_remove_keeps_the_order_of_the_rest(fake_apple: FakeAppleMusic, tmp_path: Path) -> None:
     server, original = await _setup(fake_apple, tmp_path)
     async with Client(server) as c:
         pid = (
