@@ -1,6 +1,6 @@
 # Data model (Phase 1) — ERD for approval [GATE]
 
-**Status:** proposal, revision 2 (after the owner's review), waiting for approval (guide §8.3). No table or migration is created before approval.
+**Status:** **approved by the owner on 2026-11-06** (revision 2, guide §8.3). Implemented in `src/apple_music_mcp/db/` (`schema.py` + Alembic migrations); `tests/test_db.py` fails if the two drift apart. Any change to this model is a new migration and a new revision of this document.
 **Storage:** SQLite on the Mac, accessed through SQLAlchemy 2.0 Core, schema managed by Alembic migrations (risk assessment §7). Secrets never go in the database (guide §5): the tokens live in the macOS Keychain; the database only stores their expiry dates.
 
 ## 1. Domain diagram
@@ -75,7 +75,7 @@ erDiagram
         text job "doctor | backup | snapshot | recent_played | refresh_plan | heartbeat"
         datetime started_at
         datetime finished_at
-        text status "ok | warn | failed | skipped_paused"
+        text status "running | ok | warn | failed | skipped_paused"
         json detail "per-check results, counts (items returned, new items)"
         text error "masked, never a token"
     }

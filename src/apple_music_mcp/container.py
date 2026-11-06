@@ -15,10 +15,13 @@ from .apple.tokens import DeveloperTokenProvider, TokenScraper, scrape_developer
 from .apple.transport import AmpTransport
 from .bpm.providers import BpmProvider, DeezerProvider, GetSongBpmProvider
 from .bpm.service import BpmService
-from .config import Credentials, CredentialStore, StateStore
+from .config import STATE_FILE, Credentials, CredentialStore, config_dir
+from .db import Database
+from .db.settings import SettingsStore, import_state_file
 from .discovery import DiscoveryService
 from .editing import PlaylistEditor
 from .local_music import MusicAppReader
+from .ports import KeyValueStore
 
 
 class AppContainer:
@@ -27,7 +30,8 @@ class AppContainer:
         credentials: Credentials | None = None,
         *,
         store: CredentialStore | None = None,
-        state: StateStore | None = None,
+        state: KeyValueStore | None = None,
+        db: Database | None = None,
         http: httpx.AsyncClient | None = None,
         persist: bool = True,
         retry: RetryPolicy | None = None,
@@ -37,7 +41,13 @@ class AppContainer:
         music_app: MusicAppReader | None = None,
     ):
         self.store = store or CredentialStore()
-        self.state = state or StateStore()
+        self.db = db
+        if state is None:
+            self.db = self.db or Database.open()
+            settings = SettingsStore(self.db)
+            import_state_file(settings, config_dir() / STATE_FILE)
+            state = settings
+        self.state = state
         self.credentials = credentials or self.store.load()
         self._http = http or httpx.AsyncClient(timeout=30, follow_redirects=True)
         self._owns_http = http is None
@@ -74,6 +84,8 @@ class AppContainer:
     async def aclose(self) -> None:
         if self._owns_http:
             await self._http.aclose()
+        if self.db is not None:
+            self.db.dispose()
 
     async def __aenter__(self) -> AppContainer:
         return self

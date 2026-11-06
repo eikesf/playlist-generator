@@ -22,6 +22,13 @@ build/
 credentials.json
 credentials.tmp
 **/apple-music-mcp/
+# Local database and its backups (listening history, never versioned)
+*.db
+*.db-wal
+*.db-shm
+*.db.gz
+state.json
+state.json.imported
 # Playwright browser profile used by `login --browser` (contains session cookies)
 browser-profile/
 # Keys, certificates, tokens

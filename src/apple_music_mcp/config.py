@@ -157,25 +157,3 @@ class CredentialStore:
 
     def save(self, creds: Credentials) -> Path:
         return save_credentials(creds, self.path)
-
-
-class StateStore:
-    """Small non-secret runtime state (e.g. which playlist-edit strategy works on this account)."""
-
-    def __init__(self, path: Path | None = None):
-        self.path = path or config_dir() / STATE_FILE
-
-    def load(self) -> dict:
-        try:
-            data = json.loads(self.path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    def get(self, key: str, default=None):
-        return self.load().get(key, default)
-
-    def set(self, key: str, value) -> None:
-        data = self.load()
-        data[key] = value
-        write_private_json(self.path, data)
