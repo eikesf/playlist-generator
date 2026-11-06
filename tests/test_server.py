@@ -16,6 +16,10 @@ from .conftest import build_app, result_text
 from .fake_apple import FakeAppleMusic
 
 EXPECTED_TOOLS = {
+    "list_pending_proposals",
+    "show_proposal",
+    "decide_proposal",
+    "apply_proposal",
     "auth_status",
     "search_songs",
     "artist_top_songs",

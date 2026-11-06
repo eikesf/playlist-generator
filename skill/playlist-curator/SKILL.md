@@ -7,7 +7,7 @@ description: "Curates a playlist for a purpose (study, workout, running, party, 
 
 Eike listens on Apple Music (Mac + iPhone). The `apple-music` MCP server creates playlists directly in his library, and that is the only way playlists are made: never Spotify, Tune My Music, text files or any other importer. Reply in Portuguese (pt-BR).
 
-Tools (server `apple-music`): `auth_status`, `start_session`, `record_answer`, `preview_playlist`, `reject_preview_tracks`, `approve_preview`, `adopt_playlist`, `list_managed_playlists`, `update_managed_playlist`, `playlist_history`, `dislike_track`, `resolve_dislike`, `list_dislikes`, `blacklist_add`, `blacklist_remove`, `blacklist_list`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `profile_curve`, `create_profile`, `delete_profile`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `finish_pending_playlists`.
+Tools (server `apple-music`): `auth_status`, `start_session`, `record_answer`, `preview_playlist`, `reject_preview_tracks`, `approve_preview`, `adopt_playlist`, `list_managed_playlists`, `update_managed_playlist`, `playlist_history`, `dislike_track`, `resolve_dislike`, `list_dislikes`, `blacklist_add`, `blacklist_remove`, `blacklist_list`, `my_taste_profile`, `known_tracks`, `deep_cuts`, `similar_artists`, `discover_tracks`, `list_playlist_profiles`, `profile_curve`, `create_profile`, `delete_profile`, `plan_playlist`, `artist_top_songs`, `search_songs`, `resolve_tracks`, `lookup_bpm`, `order_tracks`, `create_playlist`, `add_tracks_to_playlist`, `list_playlists`, `get_playlist_tracks`, `insert_tracks_into_playlist`, `reorder_playlist`, `sync_playlist`, `remove_tracks_from_playlist`, `resequence_playlist`, `rename_playlist`, `plan_playlist_refresh`, `apply_playlist_refresh`, `list_pending_proposals`, `show_proposal`, `decide_proposal`, `apply_proposal`, `finish_pending_playlists`.
 
 The one rule above all: **the purpose of the playlist decides everything.** A study playlist, a workout and a techno set differ in energy curve, tempo, track length and vocals. Find out the purpose first, then let the plan drive the curation.
 
@@ -130,16 +130,22 @@ Every edit goes straight to his Apple Music library. Never ask him to drag track
 - **Blacklist** only when he explicitly asks ("nunca mais coloca X"): `blacklist_add` with `scope` (artist or track) and his request verbatim. Never infer it from a dislike. `blacklist_list` shows it; `blacklist_remove` lifts an entry when he asks. Blocked tracks are dropped automatically everywhere.
 - Managed playlists keep their history: `playlist_history` shows what was added, removed or moved, when and why.
 
-## 9. Refresh a playlist (weekly or on request)
+## 9. Weekly refresh: proposals he approves (Mac or Dispatch)
 
 **Golden rule: never remove a track from the main playlist unless he named it or confirmed it.** He could lose a song he liked and not remember its name.
 
-1. Call `plan_playlist_refresh` with the playlist id. Nothing changes in Apple Music. It stores a **proposal** and returns its items:
-   - `remove` items with `why`: `often_skipped` or `not_played` (from the Mac's daily play/skip snapshots over the last weeks), or `disliked`. Favorites, loved tracks and recent additions are never included. With too little history it proposes no rotation and `notes` say why: tell him.
-   - `add` items: one replacement per removal (`replaces_item_id`), from the same familiarity bucket, never from the blacklist, his dislikes or tracks he rejected before.
-2. Show him the proposal by name, with plays/skips and the replacement next to each removal, and ask which to accept (AskUserQuestion, multi-select).
-3. `apply_playlist_refresh` with `remove_ids` removes tracks he named directly, outside a proposal: each track is first copied to "<name> · Arquivo" (so nothing is ever lost), then removed with the rest kept in order. On `needs_decision`, follow section 8 (ask before recreating).
-4. Report what moved where and remind him that the Arquivo keeps everything that left.
+Playlists with the refresh on (`update_managed_playlist` with `refresh_enabled: true`; `refresh_weekday` / `refresh_time` change the slot, default Monday 09:00) get a **proposal** every week from a job on his Mac. Nothing changes until he approves. He gets a phone notification "Refresh pronto para <playlist>: X saem, Y entram".
+
+1. When he mentions the notification or asks what is pending: `list_pending_proposals`, then `show_proposal`.
+2. Show each proposal **by name**, each removal next to its replacement:
+   - `remove` items: `why` is `often_skipped` (with skips/plays in the window), `not_played` (no plays in the last weeks while the playlist was played) or `disliked`. Favorites, loved tracks and recent additions are never proposed.
+   - `add` items: the replacement (`replaces_item_id`), from the same familiarity bucket so the mix holds, never from the blacklist, his dislikes or tracks he rejected before.
+   - Read the `notes`: with little play history (the daily snapshots started recently) there is no rotation yet, only dislikes. Say so plainly.
+3. Ask what to accept (AskUserQuestion, multi-select; on the phone a short numbered list is fine). Record it with `decide_proposal`: `accept_item_ids` and `reject` with his reason in his words (rejected additions are avoided in future sessions; a rejected removal just means "keep it"). `accept_all` / `reject_all` cover what is still pending.
+4. Once `approved`, call `apply_proposal`. Pass `estimates` (bpm/energy) for the new tracks and, ideally, the current ones (`get_playlist_tracks`) so each new track lands where it fits. Removed tracks are first copied to "<name> · Arquivo" and verified. On `needs_decision`, follow section 8.
+5. Report what left, what came in and where, and remind him the Arquivo keeps everything that left.
+
+On request, outside the weekly slot: `plan_playlist_refresh` builds the same kind of proposal now (or returns the open one). `apply_playlist_refresh` with `remove_ids` removes tracks he names directly (archived first).
 
 ## 10. Follow-up
 

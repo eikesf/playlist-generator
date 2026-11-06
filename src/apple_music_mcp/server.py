@@ -22,7 +22,9 @@ save them with `record_answer`. Then `plan_playlist` -> gather tracks per famili
 To ADD tracks to an existing playlist use `insert_tracks_into_playlist` (keeps the current order);
 `remove_tracks_from_playlist` to remove; `resequence_playlist` only to reshuffle everything on request.
 "Não gostei" = `dislike_track` with the reason (a suggestion, never removes or blocks the artist).
-Blacklist only on explicit request (`blacklist_add`). Never invent catalog ids. On an AUTH error, tell the
+Blacklist only on explicit request (`blacklist_add`). Weekly refresh/promotion proposals wait for the
+user: `list_pending_proposals` -> `show_proposal` -> `decide_proposal` (only what he confirms) ->
+`apply_proposal`. Never invent catalog ids. On an AUTH error, tell the
 user to run `apple-music-mcp login` on their Mac.
 """
 
