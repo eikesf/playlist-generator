@@ -158,3 +158,24 @@ Still open, deferred to Phase 3: pending playlists still live in `setting` (data
 | `schedule install` | ok | 5 launchd agents loaded (doctor 08:10, snapshot 23:40, recent 10:30/22:30, backup 23:50, heartbeat 10 min) |
 
 ntfy: topic configured by the owner (not recorded here). Still to confirm: a real ntfy alert on a failure, and `pause` with the healthchecks API key (optional).
+
+## 11. Phase 3 delivered (2026-11-06)
+
+Built offline against the fake Apple API (297 tests, mypy strict). Live checks are in [`validation/phase-3-runbook.md`](validation/phase-3-runbook.md); the plan and the decisions on open points are in [`plans/phase-3.md`](plans/phase-3.md).
+
+| Guide item | Delivered in | Notes |
+|---|---|---|
+| Plan | #74 | Decisions taken for the open points, questions for the owner |
+| §7.10 refresh as proposals, play/skip windows | #75 | Read-only plan; rotation needs ≥ 14 days of snapshots; one-for-one replacements in the same familiarity bucket; old `refresh_plans` imported once |
+| §7.10 weekly job, §6.2 alert | #76 | `refresh_plan` (Monday 09:00, per playlist slot), expiry after 7 days, ntfy "Refresh pronto…", `REFRESH_AUTO_APPLY` path ready but off; `schedule-refresh` retired |
+| §7.10 approval via Dispatch | #77 | `list_pending_proposals`, `show_proposal`, `decide_proposal`, `apply_proposal` |
+| §7.11 Weekly Discoveries curated by Claude | #78 | Context + validated submit; Desktop scheduled-task prompt in `docs/scheduled-tasks/weekly-discoveries.md` |
+| §7.11 promotion with cap | #79 | Liked = loved or ≥ 3 plays with skip ratio < 0.25; ≤ 20 % of the main playlist and ≤ 30 per week |
+| Data model decision 6 (deferred from Phase 2) | #80 | Pending playlists are approved `create` proposals; old key imported once |
+| Docs | this PR | Skill, READMEs, CLAUDE.md, ADR 0010 amendment, runbook |
+
+No schema change was needed: every new behaviour uses the approved ERD (per-item evidence lives in `proposal.params`).
+
+Divergences and choices to confirm with the owner (see the plan's open questions): the "liked" thresholds; the refresh window and thresholds; the weekly playlist name "· Weekly Discoveries" (the archive stays "· Arquivo"); one-for-one replacement; the plan no longer stages discoveries (now Claude's weekly task).
+
+Still to verify live: the first `refresh_plan` run with real snapshots (rotation starts once 14 days of history exist, around 2026-11-20); the ntfy alert on a real proposal; approving through Dispatch; the Claude Desktop scheduled task calling `submit_weekly_discoveries`; whether loved tracks in the weekly playlist show up as `favorited` in the Music app snapshot.
