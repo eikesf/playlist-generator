@@ -1,0 +1,102 @@
+name: PR automation
+
+# - Assigns every PR to its author and labels it from its Conventional Commits
+#   title (feat -> enhancement, fix -> bug, docs -> documentation, ...).
+# - When a PR is merged, closes the issues it references with a closing keyword
+#   ("Closes #12", "Fixes #12", ...) or links in the Development sidebar.
+#   GitHub only does this by itself for PRs into the default branch (main);
+#   this workflow covers PRs into develop too.
+on:
+  pull_request:
+    types: [opened, reopened, edited, ready_for_review, closed]
+
+permissions: {}
+
+concurrency:
+  group: pr-automation-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const issue_number = pr.number;
+
+            // Assign the author (skip bots such as dependabot).
+            if (pr.user.type === 'User' && !pr.assignees.some(a => a.login === pr.user.login)) {
+              await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [pr.user.login] });
+            }
+
+            // Labels from the Conventional Commits type in the title.
+            const typeLabels = {
+              feat: 'enhancement', fix: 'bug', docs: 'documentation', ci: 'ci', build: 'ci',
+              chore: 'chore', refactor: 'refactor', test: 'test', perf: 'performance',
+            };
+            const managed = new Set([...Object.values(typeLabels), 'breaking change', 'release', 'hotfix']);
+            const wanted = new Set();
+            const m = pr.title.match(/^(\w+)(\([^)]*\))?(!)?:/);
+            if (m && typeLabels[m[1].toLowerCase()]) wanted.add(typeLabels[m[1].toLowerCase()]);
+            if (m && m[3]) wanted.add('breaking change');
+            if (pr.base.ref === 'main' && pr.head.ref === 'develop') wanted.add('release');
+            if (pr.head.ref.startsWith('hotfix/')) wanted.add('hotfix');
+
+            // Keep labels added by hand; only swap the ones this workflow manages.
+            const current = pr.labels.map(l => l.name);
+            for (const name of current) {
+              if (managed.has(name) && !wanted.has(name)) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              }
+            }
+            const toAdd = [...wanted].filter(n => !current.includes(n));
+            if (toAdd.length) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: toAdd });
+            }
+            core.info(`assignee=${pr.user.login} labels=${[...wanted].join(',') || '(none)'}`);
+
+  close-linked-issues:
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.base.ref != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const numbers = new Set();
+
+            // Closing keywords in the PR description and title.
+            const text = `${pr.title}\n${pr.body || ''}`;
+            const re = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b/gi;
+            for (const match of text.matchAll(re)) numbers.add(Number(match[1]));
+
+            // Issues linked by hand in the PR's Development sidebar.
+            try {
+              const q = await github.graphql(
+                `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){closingIssuesReferences(first:25){nodes{number}}}}}`,
+                { owner, repo, n: pr.number });
+              for (const node of q.repository.pullRequest.closingIssuesReferences.nodes) numbers.add(node.number);
+            } catch (e) {
+              core.warning(`Could not read linked issues: ${e.message}`);
+            }
+
+            for (const issue_number of numbers) {
+              const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number });
+              if (issue.pull_request || issue.state === 'closed') continue;
+              await github.rest.issues.createComment({ owner, repo, issue_number,
+                body: `Closed by #${pr.number}, merged into \`${pr.base.ref}\`.` });
+              await github.rest.issues.update({ owner, repo, issue_number, state: 'closed', state_reason: 'completed' });
+              core.info(`closed #${issue_number}`);
+            }
+            if (!numbers.size) core.info('No linked issues.');
