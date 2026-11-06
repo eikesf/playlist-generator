@@ -10,6 +10,7 @@ from . import (
     editing_tools,
     library_tools,
     refresh_tools,
+    session_tools,
     taste_tools,
 )
 from .base import ContainerProvider
@@ -22,3 +23,4 @@ def register_all(mcp: MCPServer, provider: ContainerProvider) -> None:
     library_tools.register(mcp, provider)
     editing_tools.register(mcp, provider)
     refresh_tools.register(mcp, provider)
+    session_tools.register(mcp, provider)
