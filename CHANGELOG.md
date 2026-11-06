@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/eikesf/playlist-generator/compare/v0.2.0...v0.3.0) (2026-11-06)
+
+
+### Features
+
+* **discoveries:** weekly discoveries curated by Claude, validated by code ([#78](https://github.com/eikesf/playlist-generator/issues/78)) ([237ff6a](https://github.com/eikesf/playlist-generator/commit/237ff6a296cf1be8129e619f741e7db5172a3cc0))
+* **jobs:** weekly refresh_plan job with ntfy, expiry and launchd slots ([#76](https://github.com/eikesf/playlist-generator/issues/76)) ([7e4d5ec](https://github.com/eikesf/playlist-generator/commit/7e4d5ec4cfa2c0f5b4289bb9041912deebffa7f1))
+* **promotion:** liked discoveries become capped promotion proposals ([#79](https://github.com/eikesf/playlist-generator/issues/79)) ([1870166](https://github.com/eikesf/playlist-generator/commit/1870166a5624ecbde5e9d1c9aa853a760d11375a))
+* **refresh:** let the owner keep a playlist's size or grow it ([#83](https://github.com/eikesf/playlist-generator/issues/83)) ([f42019e](https://github.com/eikesf/playlist-generator/commit/f42019ecb5d09a6105ea4b6ac7ba1a6be2d5cb8d))
+* **refresh:** refresh plans as proposals, play/skip windows from snapshots ([#75](https://github.com/eikesf/playlist-generator/issues/75)) ([347448a](https://github.com/eikesf/playlist-generator/commit/347448a897de0302167751dd0e7ca90ea04ee864))
+* **tools:** review, decide and apply proposals from Desktop or Dispatch ([#77](https://github.com/eikesf/playlist-generator/issues/77)) ([f4619d5](https://github.com/eikesf/playlist-generator/commit/f4619d5a10edfe1994c645d85da0637ddfac7cb8))
+
+
+### Documentation
+
+* phase 3 delivered ([#81](https://github.com/eikesf/playlist-generator/issues/81)) ([5b9f5f3](https://github.com/eikesf/playlist-generator/commit/5b9f5f3972cafbd93fec556f48a7ab5ef549444d))
+* phase 3 implementation plan and open questions ([#74](https://github.com/eikesf/playlist-generator/issues/74)) ([13a4147](https://github.com/eikesf/playlist-generator/commit/13a41478a6aa95c63947cf802374202f4800678c))
+* record phase 1 live validation on the owner's Mac ([c212961](https://github.com/eikesf/playlist-generator/commit/c212961a4082392cc0817c83891587c699fe7440))
+* record phase 1 live validation on the owner's Mac ([4be7926](https://github.com/eikesf/playlist-generator/commit/4be7926e2e0f71104b2996587d836663070a15ed))
+
 ## [0.2.0](https://github.com/eikesf/playlist-generator/compare/apple-music-mcp-v0.1.0...apple-music-mcp-v0.2.0) (2026-11-06)
 
 
