@@ -38,6 +38,7 @@ def _registry() -> dict[str, JobFn]:
     from .doctor import doctor_job
     from .heartbeat import heartbeat_job
     from .recent import recent_played_job
+    from .refresh_plan import refresh_plan_job
     from .snapshot import snapshot_job
 
     return {
@@ -46,12 +47,13 @@ def _registry() -> dict[str, JobFn]:
         "snapshot": snapshot_job,
         "recent_played": recent_played_job,
         "heartbeat": heartbeat_job,
+        "refresh_plan": refresh_plan_job,
     }
 
 
 log = logging.getLogger(__name__)
 
-JOB_NAMES = ("doctor", "backup", "snapshot", "recent_played", "heartbeat")
+JOB_NAMES = ("doctor", "backup", "snapshot", "recent_played", "heartbeat", "refresh_plan")
 
 
 async def run_job(name: str, app: AppContainer, notifier: Notifier | None = None) -> JobOutcome:

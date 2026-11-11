@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from mcp import Client
 
 from apple_music_mcp.commands.pending import run_finish_pending
@@ -55,3 +56,69 @@ async def test_finish_pending_cli(fake_apple: FakeAppleMusic) -> None:
     lines.clear()
     assert await run_finish_pending(build=build_app, out=lines.append) == 0
     assert lines == ["No pending playlists."]
+
+
+async def test_pending_playlists_are_approved_create_proposals(fake_apple: FakeAppleMusic) -> None:
+    from apple_music_mcp.db.history import ProposalRepository
+    from apple_music_mcp.operations import PendingPlaylists
+
+    expired = Credentials(media_user_token="expired-token-xxxxxxxxxxxx", storefront="br")
+    async with Client(build_server(lambda: build_app(expired))) as c:
+        await c.call_tool("create_playlist", {"name": "Run", "song_ids": ["2001", "i.lib1"]})
+        await c.call_tool("create_playlist", {"name": "Run", "song_ids": ["2002"]})  # same name: replaces
+    fresh = Credentials(media_user_token=fake_apple.user_token, storefront="br")
+    async with build_app(fresh) as app:
+        repo = ProposalRepository(app.db)
+        [p] = repo.find(statuses=("approved",), kind="create")
+        assert p["params"]["pending"] is True and p["params"]["song_ids"] == ["2002"]
+        assert len(repo.find(statuses=("rejected",), kind="create")) == 1  # the replaced draft is kept
+        [draft] = PendingPlaylists(app).list()
+        assert draft["name"] == "Run" and draft["proposal_id"] == p["id"]
+        [done] = await PendingPlaylists(app).finish()
+        assert repo.get(p["id"])["status"] == "applied"  # type: ignore[index]
+        assert fake_apple.playlists[done["playlist"]["id"]]["tracks"] == ["2002"]
+        assert PendingPlaylists(app).list() == []
+
+
+async def test_finish_with_login_still_expired_keeps_one_pending(fake_apple: FakeAppleMusic) -> None:
+    from apple_music_mcp.apple.errors import AuthError
+    from apple_music_mcp.operations import PendingPlaylists
+
+    expired = Credentials(media_user_token="expired-token-xxxxxxxxxxxx", storefront="br")
+    async with build_app(expired) as app:
+        await PendingPlaylists(app).add("Focus", None, ["4001"])
+        with pytest.raises(AuthError):
+            await PendingPlaylists(app).finish()
+        assert [d["name"] for d in PendingPlaylists(app).list()] == ["Focus"]
+
+
+async def test_legacy_pending_key_is_imported_once(fake_apple: FakeAppleMusic) -> None:
+    from apple_music_mcp.legacy import PENDING_KEY, import_legacy_state
+    from apple_music_mcp.operations import PendingPlaylists
+
+    async with build_app(Credentials()) as app:
+        app.state.set(
+            PENDING_KEY, [{"name": "Old", "description": "d", "song_ids": ["1001", "2001"], "saved_at": 1.0}]
+        )
+        assert import_legacy_state(app)["pending_playlists"] == 1
+        assert import_legacy_state(app)["pending_playlists"] == 0
+        [draft] = PendingPlaylists(app).list()
+        assert (draft["name"], draft["description"], draft["song_ids"]) == ("Old", "d", ["1001", "2001"])
+        assert app.state.get(PENDING_KEY) is None
+
+
+def test_a_track_known_only_by_id_never_overwrites_real_names() -> None:
+    from sqlalchemy import select
+
+    from apple_music_mcp.db import Database
+    from apple_music_mcp.db.repositories import TrackInfo, TrackRepository
+    from apple_music_mcp.db.schema import track
+
+    db = Database.open()
+    repo = TrackRepository(db)
+    real = repo.upsert(TrackInfo("Doppler", "Charlotte de Witte", catalog_id="1001"))
+    assert repo.upsert(TrackInfo("1001", "", catalog_id="1001")) == real
+    with db.engine.connect() as conn:
+        row = conn.execute(select(track.c.title, track.c.artist_name).where(track.c.id == real)).one()
+    assert tuple(row) == ("Doppler", "Charlotte de Witte")
+    db.dispose()

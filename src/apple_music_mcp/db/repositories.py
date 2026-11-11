@@ -9,7 +9,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Connection, and_, func, insert, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -17,6 +17,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from ..text import normalize, primary_artist
 from .database import Database
 from .schema import artist, job_run, play_snapshot, recent_play, track
+
+if TYPE_CHECKING:
+    from ..curation.listening import ListeningWindow
 
 
 def utcnow() -> datetime:
@@ -69,6 +72,9 @@ class TrackRepository:
         if row_id is None:
             values["artist_id"] = self._artist_id(conn, info.artist_name)
             return int(conn.execute(insert(track).values(**values).returning(track.c.id)).scalar_one())
+        if not info.artist_name:  # known only by id (e.g. a pending draft): keep the real names
+            for name in ("title", "artist_name", "match_key"):
+                values.pop(name)
         conn.execute(update(track).where(track.c.id == row_id).values(**values))
         return row_id
 
@@ -285,3 +291,136 @@ class JobRunRepository:
                 select(job_run).where(job_run.c.job == job).order_by(job_run.c.id.desc()).limit(1)
             ).first()
         return dict(row._mapping) if row else None
+
+
+class ProfileRepository:
+    """Rows of the ``profile`` table. Built-in profiles are mirrored so managed playlists can point at
+    them; profiles Claude creates in a conversation (``origin = ai_created``) exist only here."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def sync(self, profiles: Sequence[dict[str, Any]]) -> None:
+        """Upsert profiles (``slug``, ``family``, ``name``, ``origin``, ``description``, ``energy_curve``,
+        ``bpm_range``, ``rules``). Families first, so sub-profiles can point at them."""
+        from .schema import profile
+
+        ordered = sorted(profiles, key=lambda p: p["family"] != p["slug"])
+        with self._db.engine.begin() as conn:
+            for p in ordered:
+                parent_id = None
+                if p["family"] != p["slug"]:
+                    parent_id = conn.execute(
+                        select(profile.c.id).where(profile.c.slug == p["family"])
+                    ).scalar()
+                values = {
+                    k: p[k] for k in ("name", "origin", "description", "energy_curve", "bpm_range", "rules")
+                }
+                values["parent_id"] = parent_id
+                existing = conn.execute(select(profile.c.id).where(profile.c.slug == p["slug"])).scalar()
+                if existing is None:
+                    conn.execute(insert(profile).values(slug=p["slug"], created_at=utcnow(), **values))
+                else:
+                    conn.execute(update(profile).where(profile.c.id == existing).values(**values))
+
+    def custom(self) -> list[dict[str, Any]]:
+        from .schema import profile
+
+        parent = profile.alias("parent")
+        query = (
+            select(profile, parent.c.slug.label("family_slug"))
+            .select_from(profile.outerjoin(parent, profile.c.parent_id == parent.c.id))
+            .where(profile.c.origin != "builtin")
+            .order_by(profile.c.slug)
+        )
+        with self._db.engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(query)]
+
+    def delete(self, slug: str) -> bool:
+        """Delete a non-builtin profile that no managed playlist uses. Returns False otherwise."""
+        from sqlalchemy import delete as sql_delete
+
+        from .schema import managed_playlist, profile
+
+        with self._db.engine.begin() as conn:
+            row = conn.execute(select(profile.c.id, profile.c.origin).where(profile.c.slug == slug)).first()
+            if row is None or row.origin == "builtin":
+                return False
+            used = conn.execute(
+                select(func.count())
+                .select_from(managed_playlist)
+                .where(managed_playlist.c.profile_id == row.id)
+            ).scalar_one()
+            if used:
+                return False
+            conn.execute(sql_delete(profile).where(profile.c.id == row.id))
+            return True
+
+
+class ListeningRepository:
+    """What the Music app says about each track: the latest play/skip counters per track."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    def window(self, start: date, end: date) -> ListeningWindow:
+        """Plays and skips gained per song (match key) between ``start`` and ``end``."""
+        from ..curation.listening import SnapshotRow, window_deltas
+
+        query = select(
+            play_snapshot.c.track_id,
+            track.c.match_key,
+            play_snapshot.c.snapshot_date,
+            play_snapshot.c.played_count,
+            play_snapshot.c.skipped_count,
+            play_snapshot.c.favorited,
+            play_snapshot.c.disliked,
+        ).join(track, track.c.id == play_snapshot.c.track_id)
+        with self._db.engine.connect() as conn:
+            rows = [
+                SnapshotRow(
+                    r.track_id,
+                    r.match_key,
+                    r.snapshot_date,
+                    r.played_count,
+                    r.skipped_count,
+                    bool(r.favorited),
+                    bool(r.disliked),
+                )
+                for r in conn.execute(query)
+            ]
+        return window_deltas(rows, start, end)
+
+    def latest_by_match_key(self) -> dict[str, Counters]:
+        newest = (
+            select(play_snapshot.c.track_id, func.max(play_snapshot.c.snapshot_date).label("d"))
+            .group_by(play_snapshot.c.track_id)
+            .subquery()
+        )
+        query = (
+            select(track.c.match_key, play_snapshot)
+            .join(
+                newest,
+                and_(
+                    play_snapshot.c.track_id == newest.c.track_id, play_snapshot.c.snapshot_date == newest.c.d
+                ),
+            )
+            .join(track, track.c.id == play_snapshot.c.track_id)
+        )
+        out: dict[str, Counters] = {}
+        with self._db.engine.connect() as conn:
+            for r in conn.execute(query):
+                current = Counters(r.played_count, r.skipped_count, bool(r.favorited), bool(r.disliked))
+                previous = out.get(r.match_key)
+                # Duplicates of one song (e.g. album and single) add up.
+                out[r.match_key] = (
+                    current
+                    if previous is None
+                    else Counters(
+                        previous.played + current.played,
+                        previous.skipped + current.skipped,
+                        previous.favorited or current.favorited,
+                        previous.disliked or current.disliked,
+                    )
+                )
+        return out

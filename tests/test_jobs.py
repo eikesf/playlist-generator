@@ -148,4 +148,4 @@ def test_launchd_agents_follow_the_settings(tmp_path: Path) -> None:
         {"Hour": 22, "Minute": 30},
     ]
     assert plists[f"{LABEL_PREFIX}heartbeat.plist"]["StartInterval"] == 600
-    assert len(plists) == 5
+    assert len(plists) == 6  # + refresh_plan

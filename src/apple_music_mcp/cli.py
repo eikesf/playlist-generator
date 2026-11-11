@@ -7,12 +7,13 @@ Subcommands:
   doctor           live end-to-end checks against Apple Music (--write also creates a test playlist)
   install-claude   register the server in Claude Desktop (and print the Claude Code command)
   set-bpm-key      store a free GetSongBPM API key (better BPM data; optional)
-  run              run one scheduled job now: doctor, snapshot, recent_played, backup, heartbeat
+  run              run one scheduled job now: doctor, snapshot, recent_played, backup, heartbeat,
+                   refresh_plan
   schedule         install / uninstall the launchd jobs that run them on this Mac
   pause / resume   pause mode for trips: jobs skip and alerts stay quiet
   finish-pending   create playlists saved while the login was expired
-  refresh          read-only weekly refresh plan: fills "<name> · Descobertas", lists candidates
-  schedule-refresh run `refresh` weekly on this Mac (launchd); nothing is ever removed automatically
+  refresh          build a read-only refresh proposal for one playlist (decided in a conversation)
+  schedule-refresh retired: the weekly refresh is the `refresh_plan` job (see `schedule install`)
 """
 
 from __future__ import annotations
@@ -43,17 +44,17 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="live checks against Apple Music")
     doctor.add_argument("--write", action="store_true", help="also create (and delete) a test playlist")
     sub.add_parser("install-claude", help="register the MCP server in Claude Desktop / Claude Code")
-    refresh = sub.add_parser("refresh", help="read-only refresh plan + discovery staging playlist")
+    refresh = sub.add_parser("refresh", help="build a read-only refresh proposal for one playlist")
     refresh.add_argument("--playlist", required=True, help="exact playlist name in your library")
-    refresh.add_argument("--new-tracks", type=int, help="how many discoveries to stage (default: auto)")
     refresh.add_argument("--notify", action="store_true", help="show a macOS notification with the summary")
-    sched = sub.add_parser("schedule-refresh", help="run `refresh` weekly via launchd (macOS)")
+    sched = sub.add_parser(
+        "schedule-refresh", help="retired: removes the old weekly agent, explains the new flow"
+    )
     sched.add_argument("--playlist", required=True)
-    sched.add_argument("--weekday", type=int, default=1, help="0=Sunday ... 6=Saturday (default Monday)")
-    sched.add_argument("--hour", type=int, default=10)
-    sched.add_argument("--minute", type=int, default=7)
     run = sub.add_parser("run", help="run one scheduled job now (what launchd calls)")
-    run.add_argument("job", choices=["doctor", "backup", "snapshot", "recent_played", "heartbeat"])
+    run.add_argument(
+        "job", choices=["doctor", "backup", "snapshot", "recent_played", "heartbeat", "refresh_plan"]
+    )
     pause = sub.add_parser("pause", help="pause scheduled jobs and alerts (trips); see `resume`")
     pause.add_argument("--until", help="YYYY-MM-DD: resume automatically after this day")
     pause.add_argument("--reason")
@@ -94,15 +95,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "refresh":
         from .commands.refresh import run_refresh
 
-        return asyncio.run(run_refresh(args.playlist, new_tracks=args.new_tracks, notify=args.notify))
+        return asyncio.run(run_refresh(args.playlist, notify=args.notify))
     if args.command == "schedule-refresh":
-        from .commands.refresh import schedule_refresh
+        from .commands.refresh import retire_schedule_refresh
 
-        path = schedule_refresh(args.playlist, args.weekday, args.hour, args.minute)
-        print(f"Weekly refresh written to {path}")
-        print(f"Activate it with:  launchctl load -w {path}")
-        print(f"Stop it with:      launchctl unload -w {path} && rm {path}")
-        return 0
+        return retire_schedule_refresh(args.playlist)
     if args.command == "run":
         from .commands.jobs import run_job_command
 

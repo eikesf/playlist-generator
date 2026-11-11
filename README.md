@@ -55,7 +55,8 @@ It was built autonomously overnight by Claude Code from my specification, as a s
 - **Sequences like a DJ, with real tempo.** BPM is **measured** from public databases (GetSongBPM with a free key, Deezer without one) and falls back to Claude's estimate only when a track isn't found. Half/double-time readings are corrected. Claude estimates the energy per track, and a deterministic algorithm orders the tracks along the purpose's energy curve, with smooth tempo steps, no artist back to back and pinned tracks respected.
 - **Creates the playlist in your library**, in order, with name and description. iCloud syncs it to the iPhone.
 - **Edits existing playlists without breaking the vibe.** New tracks are **inserted exactly where they fit**: the existing order stays untouched and each new track goes into the slot that best matches the energy curve, BPM flow and artist spacing. Removing a track keeps everything else in order. You can also reorder, rename or fully re-sequence on request. Edits are verified by reading the playlist back.
-- **Refreshes without losing anything.** A weekly refresh (on request or scheduled on the Mac) fills a separate **"<name> · Descobertas"** playlist with new tracks. Tracks you love or play a lot there are suggested for promotion into the main playlist, at the right position. It suggests rotating out the least-played tracks only when your Mac's play counts can really tell them apart, and it flags tracks you disliked. **Nothing leaves the main playlist unless you confirm it**, and everything that leaves is first copied to **"<name> · Arquivo"**.
+- **Refreshes without losing anything.** For playlists you opt in, a weekly job on the Mac (Monday 09:00 by default) builds a **proposal**: tracks often skipped or not played lately (from the daily play/skip snapshots, only once there are at least 14 days of history), tracks you disliked, and one coherent replacement for each. You choose per playlist whether it keeps its size or grows by N tracks each week. Your phone gets a notification, and you approve item by item in a Claude conversation (Mac or Dispatch). **Nothing leaves the main playlist unless you confirm it**, and everything that leaves is first copied to **"<name> · Arquivo"**.
+- **Weekly Discoveries, curated by Claude.** A Claude Desktop scheduled task picks about 30 new tracks a week for **"<name> · Weekly Discoveries"**. The code checks every pick: catalog, blacklist, dislikes, songs you already know. Tracks you love there become a promotion proposal, capped at 20 % of the main playlist and 30 tracks a week, inserted where they fit once you approve.
 - **Everything happens inside Apple Music.** There are no export files and no third-party importers. If the catalog API is unavailable, search falls back to Apple's own public iTunes Search API. If your login expired, the playlist is kept as **pending** (same tracks and order) and created with one command after `apple-music-mcp login`.
 - **Diagnoses itself.** `apple-music-mcp doctor --write` tests the whole chain live: token, search, account, create, reorder, delete.
 
@@ -145,7 +146,7 @@ The server also keeps a local history so the refresh and the future dashboard ha
 
 ```bash
 cp .env.example ~/.config/apple-music-mcp/.env   # then edit: ntfy topic, healthchecks URL, times
-apple-music-mcp schedule install                  # launchd jobs: doctor, snapshot, recently played, backup, heartbeat
+apple-music-mcp schedule install                  # launchd jobs: doctor, snapshot, recently played, backup, heartbeat, refresh_plan
 apple-music-mcp run snapshot                      # first snapshot now (later: daily)
 ```
 
@@ -156,6 +157,7 @@ apple-music-mcp run snapshot                      # first snapshot now (later: d
 | `snapshot` | 23:40 | Saves the Music app's play/skip counters (only what changed) |
 | `backup` | 23:50 | Verified, compressed database copy in iCloud Drive (7 daily + 4 weekly) |
 | `heartbeat` | every 10 min | Pings healthchecks.io; reports when Claude Desktop is closed |
+| `refresh_plan` | Monday 09:00 | Refresh and promotion **proposals** for opted-in playlists (read-only), with an ntfy alert; you approve in Claude |
 
 Alerts go to your phone through **ntfy** (free app; pick a long random topic). The heartbeat uses a free **healthchecks.io** check: if your Mac stops pinging, healthchecks e-mails you. Going on a trip? `apple-music-mcp pause --until 2026-12-20` (and `resume` when back). Everything is stored in `~/.config/apple-music-mcp/apple-music-mcp.db` (SQLite). Logs are in `~/Library/Logs/apple-music-mcp/`.
 
@@ -197,13 +199,16 @@ What you get back: the playlist link, the tracks grouped by act with durations, 
 | `remove_tracks_from_playlist` | Removes tracks and keeps the rest in order |
 | `rename_playlist` | Changes the name and/or description |
 | `list_playlists` / `get_playlist_tracks` | Reads your library |
-| `plan_playlist_refresh` | Read-only refresh plan: least-played (when identifiable) and disliked candidates, discoveries added to "· Descobertas", promotion candidates |
-| `apply_playlist_refresh` | Applies only what you confirmed: archive then remove, promote into the main playlist at the best position |
+| `plan_playlist_refresh` | Builds a refresh proposal now (read-only): often skipped / not played / disliked tracks, each with a replacement |
+| `apply_playlist_refresh` | Removes tracks you name directly: archived first, then removed keeping the order |
+| `list_pending_proposals` / `show_proposal` | Weekly refresh and promotion proposals waiting for you, with plays/skips and reasons |
+| `decide_proposal` / `apply_proposal` | Accept or reject per item (with your reason), then apply only what you accepted |
+| `weekly_discoveries_context` / `submit_weekly_discoveries` | What Claude needs to curate the weekly discoveries, and the validated write of the batch |
 | `finish_pending_playlists` | Creates playlists that were kept as pending while the login was expired |
 
-CLI: `apple-music-mcp serve | login [--browser] [--expires YYYY-MM-DD] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | run <job> | schedule install|uninstall | pause [--until DATE] | resume | refresh --playlist NAME | schedule-refresh --playlist NAME`.
+CLI: `apple-music-mcp serve | login [--browser] [--expires YYYY-MM-DD] | status | doctor [--write] | install-claude | set-bpm-key | finish-pending | run <job> | schedule install|uninstall | pause [--until DATE] | resume | refresh --playlist NAME`.
 
-**Weekly refresh on the Mac (optional):** `apple-music-mcp schedule-refresh --playlist "Warehouse Ascension"` writes a launchd agent (Monday 10:07 by default) and prints the `launchctl load` command. It only runs the read-only plan: it fills "· Descobertas" and shows a notification. Play counts come from the Music app via AppleScript, and macOS asks once for permission (System Settings → Privacy & Security → Automation).
+**Weekly refresh (optional):** in a conversation, turn it on per playlist ("liga o refresh semanal da <playlist>"), then run `apple-music-mcp schedule install`. The `refresh_plan` job only reads; you decide in Claude. `refresh --playlist NAME` builds one proposal now. **Weekly Discoveries:** see [docs/scheduled-tasks/weekly-discoveries.md](docs/scheduled-tasks/weekly-discoveries.md) for the Claude Desktop scheduled task (ready-to-paste prompt). The old `schedule-refresh` command is retired: it removes its old agent and explains the new flow.
 
 **Better BPM (optional):** create a free key at [getsongbpm.com/api](https://getsongbpm.com/api) and run `apple-music-mcp set-bpm-key`. Without a key, Deezer's public API is used. Tempo data courtesy of [GetSongBPM](https://getsongbpm.com) and [Deezer](https://www.deezer.com). Check their terms for attribution requirements if you share or publish results.
 

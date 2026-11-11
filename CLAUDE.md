@@ -26,7 +26,7 @@ uv tool install --force --reinstall --no-cache .  # install the CLI (without --r
 uv run python scripts/diagnose_token.py  # bounded, masked live diagnostic of developer-token discovery
 apple-music-mcp status                   # masked credentials
 apple-music-mcp doctor [--write]         # live checks against Apple
-apple-music-mcp run <job>                # one scheduled job now: doctor | snapshot | recent_played | backup | heartbeat
+apple-music-mcp run <job>                # one scheduled job now: doctor | snapshot | recent_played | backup | heartbeat | refresh_plan
 apple-music-mcp schedule install         # launchd agents for all jobs (times from ~/.config/apple-music-mcp/.env)
 apple-music-mcp pause [--until YYYY-MM-DD] / resume   # trips: jobs skip, alerts stay quiet
 ```
@@ -43,8 +43,10 @@ Layered, with dependency inversion (ADR 0007):
 - Domain logic: `resolver.py` (free-text → catalog id via rapidfuzz, penalizes unrequested versions, reports `not_found` rather than guessing), `curation/` (purpose profiles as data → planner → `Sequencer` greedy + pairwise-swap local search on one cost function), `editing.py` (`PlaylistEditor`), `refresh.py`, `discovery.py`, `bpm/`. Domain code depends on protocols in `ports.py`, not on HTTP.
 - `container.py` (`AppContainer`): the **composition root**, the only place objects are wired. Tests inject a fake `httpx` client, a no-op `sleep`, and temp stores through its constructor.
 - `tools/`: MCP adapters, one module per domain, each exposing `register(mcp, provider)`; add new modules to `tools/__init__.register_all`. Wrap every tool with `@tool_errors` (`tools/base.py`), which maps exceptions to `ToolError` (an `AUTH:` prefix tells Claude to have the user run `apple-music-mcp login`). The container is built lazily via `ContainerProvider`, so the server starts offline.
-- `commands/` + `cli.py`: CLI subcommands (`serve`, `login`, `status`, `doctor`, `install-claude`, `refresh`, `schedule-refresh`, `finish-pending`, `set-bpm-key`). `doctor` is a list of `Check` objects.
-- `server.py`: `INSTRUCTIONS` string describing the intended tool flow (plan → resolve → order → create; insert vs resequence).
+- `commands/` + `cli.py`: CLI subcommands (`serve`, `login`, `status`, `doctor`, `install-claude`, `refresh`, `schedule-refresh` (retired, removes the old agent), `finish-pending`, `set-bpm-key`, `run`, `schedule`, `pause`/`resume`). `doctor` is a list of `Check` objects.
+- `server.py`: `INSTRUCTIONS` string with the session flow (edit or create → questions → plan → resolve → order → preview → approve; insert vs resequence), and the skill served as the `playlist-curator` prompt and `skill://playlist-curator` resource so Dispatch gets the same instructions.
+- `sessions.py` (sessions, previews, managed playlists, `sync_with_history`), `feedback.py` (dislikes, blacklist), `curation/known.py` (known = loved or ≥ 10 plays), `curation/registry.py` (built-in + chat-created profiles).
+- Phase 3: `proposals.py` (`ProposalService`: render, decide per item, approve/reject, expire, apply), `curation/listening.py` (plays/skips over a window from sparse `play_snapshot` rows), `refresh.py` (read-only `build_plan` → `refresh` proposal; `apply_refresh`), `weekly_discoveries.py` (context for Claude + validated batch into "<name> · Weekly Discoveries"), `promotion.py` (liked criterion, 20 %/30 weekly cap), `jobs/refresh_plan.py` (weekly job: expiry, refresh and promotion proposals, ntfy), `legacy.py` (one-time import of the old `refresh_plans` / `pending_playlists` settings). The Claude Desktop scheduled-task prompt is in `docs/scheduled-tasks/weekly-discoveries.md`.
 
 State lives in `~/.config/apple-music-mcp/`: `credentials.json` (0600) and `apple-music-mcp.db` (SQLite, 0600). The database schema is `db/schema.py`, mirroring the approved ERD in `docs/data-model.md`; every schema change needs an Alembic migration in `db/migrations/versions/` (`tests/test_db.py` checks they match). `Database.open()` applies pending migrations. Small state (remembered edit strategies, removal shapes, caches) goes through `KeyValueStore` (`ports.py`), backed by the `setting` table; a legacy `state.json` is imported once and renamed to `state.json.imported`.
 
@@ -52,7 +54,8 @@ State lives in `~/.config/apple-music-mcp/`: `credentials.json` (0600) and `appl
 
 - **Edits never destroy without consent** (ADR 0005): `PlaylistEditor.sync` tries in-place first (keep common prefix, rewrite tail, snapshot + restore on failure). Rebuild (new playlist, delete old) only runs with `allow_rebuild=true`; otherwise return `status: needs_decision` with manual steps (computed via LIS).
 - **Adding tracks inserts, doesn't reshuffle**: `Sequencer.insert` keeps existing order and places each new track at its minimum-cost slot. `resequence_playlist` is only for explicit requests.
-- **Refresh never loses a track** (ADR 0010): `plan` is read-only; `apply` only executes confirmed ids; removed tracks are archived to "<name> · Arquivo" and verified before removal. Music-app data is read via `osascript`, read-only.
+- **Refresh never loses a track** (ADR 0010): `build_plan` is read-only for Apple and stores a `refresh` proposal; only `accepted` items of an `approved` proposal are applied; removed tracks are archived to "<name> · Arquivo" and verified before removal. Rotation needs `REFRESH_MIN_HISTORY_DAYS` of snapshots; favorites, loved and recently added tracks are never candidates. Music-app data is read via `osascript`, read-only.
+- **Every scheduled change is a proposal** (data model decision 6): kinds `refresh`, `promotion` (approved by the owner in a conversation), `discoveries` (written by the owner's Desktop scheduled task, stored as `applied`), `create` (pending playlists: `approved`, `params.pending`). Scheduled jobs never write to Apple unless `REFRESH_AUTO_APPLY=true` (default false).
 - **Familiarity mix** (ADR 0011): tracks are bucketed `known_track` / `known_artist_new_track` / `new_artist` using the taste profile; `known_artists_pct ≥ known_tracks_pct`.
 - Apple API limits mirrored in the fake: search `limit` ≤ 25, ≤ 100 tracks per add.
 
